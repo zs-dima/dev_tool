@@ -48,7 +48,8 @@ release version:
     grep -q "^## \[{{ version }}\]" CHANGELOG.md || { echo "CHANGELOG.md has no section for {{ version }}"; exit 1; }
     just check lint-workflows
     sed "s/^version: .*/version: {{ version }}/" pubspec.yaml > pubspec.yaml.tmp && mv pubspec.yaml.tmp pubspec.yaml
-    git commit --quiet -am "chore: release {{ version }}"
+    git add pubspec.yaml
+    git diff --cached --quiet || git commit --quiet -m "chore: release {{ version }}"
     git tag "v{{ version }}"
     major="v$(echo "{{ version }}" | cut -d. -f1)"
     git tag -f "$major"
