@@ -8,7 +8,6 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Changed
 
-- Published to pub.dev; `deploy.yml` publishes every `vX.Y.Z` tag through OIDC.
 - The line's checks in the Flutter app workflows (`dcm`, `l10n-verify`, `app-audit`) are off by
   default; a caller turns on the ones its repository has.
 - `dart-package.yml` and `flutter-package.yml` run `publish-check`: the published set free of

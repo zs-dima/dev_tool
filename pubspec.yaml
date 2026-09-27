@@ -1,6 +1,10 @@
 name: dev_tool
 description: Shared developer tooling for standalone Dart and Flutter repositories (workspace test runner, kit linking, build numbers, release notes, size gate).
 
+# Consumed by git tag (`tag_pattern: v{{version}}`): pub.dev refuses the name as too similar to
+# `devtools` (2026-09-27), and the name stays.
+publish_to: none
+
 version: 1.0.1
 
 homepage: https://github.com/zs-dima/dev_tool

@@ -18,6 +18,8 @@ permissions:
 jobs:
   package:
     uses: $/.github/workflows/dart-package.yml
+    with:
+      publish-check: false # publish_to: none
 
   workflows:
     name: Workflows
