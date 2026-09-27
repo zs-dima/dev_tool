@@ -10,9 +10,9 @@ inputs:
     required: false
     default: "."
   dcm:
-    description: "Run DCM. Off only where no licence exists (the fixture consumer)."
+    description: "Run DCM with the licence pair (dcm-key, dcm-email)."
     required: false
-    default: "true"
+    default: "false"
   dcm-key:
     description: "secrets.DCM_CI_KEY."
     required: false
@@ -32,7 +32,7 @@ inputs:
   l10n-verify:
     description: "Run `l10n_tool:verify` in packages/localization (ARBs against the committed baselines, offline)."
     required: false
-    default: "true"
+    default: "false"
   unused-keys:
     description: "Run packages/localization/tool/unused_keys.dart (every authored row has a reader)."
     required: false

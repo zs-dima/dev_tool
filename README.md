@@ -28,11 +28,18 @@ tunes (flags, paths, its own recipes) lives in its `justfile`.
 ```yaml
 # pubspec.yaml of a Flutter app (the root of its pub workspace)
 dev_dependencies:
+  dev_tool: ^1.0.1
+```
+
+Before a version is on pub.dev, or to run an unreleased tag, the same package by git tag:
+
+```yaml
+dev_dependencies:
   dev_tool:
     git:
       url: https://github.com/zs-dima/dev_tool.git
       tag_pattern: v{{version}}
-    version: ^1.0.0
+    version: ^1.0.1
 ```
 
 ```yaml
@@ -42,8 +49,8 @@ jobs:
     uses: zs-dima/dev_tool/.github/workflows/flutter-app-gate.yml@v1
 ```
 
-Bumps of the git dependency are manual (`dart pub upgrade dev_tool`): Dependabot does not update pub
-git dependencies. It does bump `@v1` to `@v2` when one exists.
+Dependabot bumps the hosted dependency; a git dependency is bumped by hand (`dart pub upgrade dev_tool`).
+It bumps `@v1` to `@v2` when one exists.
 
 ## Versions
 

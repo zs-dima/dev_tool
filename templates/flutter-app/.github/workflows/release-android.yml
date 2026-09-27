@@ -37,10 +37,9 @@ jobs:
       play-auto-publish: ${{ vars.PLAY_AUTO_PUBLISH == 'true' }}
       allow-unsymbolicated: ${{ vars.ALLOW_UNSYMBOLICATED == 'true' }}
       # The same checks as code-analysis.yml, for a sha without a green push run.
+      dcm: true
       app-audit: true
       l10n-verify: true
-      unused-keys: false
-      setup-node: false
     secrets:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}

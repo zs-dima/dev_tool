@@ -21,8 +21,9 @@ on:
         type: boolean
         default: false
       l10n-verify:
+        description: "Run `l10n_tool:verify` in packages/localization."
         type: boolean
-        default: true
+        default: false
       unused-keys:
         type: boolean
         default: false
@@ -37,9 +38,9 @@ on:
         type: string
         default: test-results
       dcm:
-        description: "Off only where no licence exists."
+        description: "Run DCM with the DCM_CI_KEY and DCM_EMAIL secrets."
         type: boolean
-        default: true
+        default: false
     secrets:
       DCM_CI_KEY:
         required: false

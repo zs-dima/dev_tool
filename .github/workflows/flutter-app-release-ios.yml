@@ -35,7 +35,7 @@ on:
         default: false
       l10n-verify:
         type: boolean
-        default: true
+        default: false
       unused-keys:
         type: boolean
         default: false
@@ -47,7 +47,7 @@ on:
         default: "24"
       dcm:
         type: boolean
-        default: true
+        default: false
     secrets:
       APP_STORE_CONNECT_KEY_IDENTIFIER:
         required: true
@@ -195,7 +195,7 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then NAME="${GITHUB_REF_NAME#v}"; else
             NAME="$(sed -n 's/^version: *\([^+ ]*\).*/\1/p' pubspec.yaml | head -1)"; fi
           NUMBER="$(dart run dev_tool:build_number ios)"
-          [ "$NUMBER" -gt 3000000 ] && [ "$NUMBER" -lt 5000000 ] || { echo "::error::$NUMBER is outside the minutes-since-2020 range"; exit 1; }
+          if [ "$NUMBER" -le 3000000 ] || [ "$NUMBER" -ge 5000000 ]; then echo "::error::$NUMBER is outside the minutes-since-2020 range"; exit 1; fi
           { echo "NAME=$NAME"; echo "NUMBER=$NUMBER"; } >> "$GITHUB_ENV"
           echo "Building $NAME (+$NUMBER)" >> "$GITHUB_STEP_SUMMARY"
 
@@ -248,7 +248,7 @@ jobs:
           set -- "$RUNNER_TEMP"/check/Payload/*.app; APP="$1"
           BUILT=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")
           SHORT=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")
-          [ "$BUILT" = "$NUMBER" ] && [ "$SHORT" = "$NAME" ] || { echo "::error::built $SHORT ($BUILT), asked for $NAME ($NUMBER)"; exit 1; }
+          if [ "$BUILT" != "$NUMBER" ] || [ "$SHORT" != "$NAME" ]; then echo "::error::built $SHORT ($BUILT), asked for $NAME ($NUMBER)"; exit 1; fi
           codesign -dvv "$APP" 2>&1 | grep -q '^Authority=Apple Distribution' || { echo "::error::not signed by an Apple Distribution identity"; exit 1; }
           security cms -D -i "$APP/embedded.mobileprovision" 2>/dev/null | grep -q 'beta-reports-active' \
             || { echo "::error::the embedded profile is not a store/TestFlight profile"; exit 1; }

@@ -28,10 +28,9 @@ jobs:
       publish: ${{ inputs.publish == true }}
       appstore-auto-publish: ${{ vars.APPSTORE_AUTO_PUBLISH == 'true' }}
       allow-unsymbolicated: ${{ vars.ALLOW_UNSYMBOLICATED == 'true' }}
+      dcm: true
       app-audit: true
       l10n-verify: true
-      unused-keys: false
-      setup-node: false
     secrets:
       APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.APP_STORE_CONNECT_KEY_IDENTIFIER }}
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}

@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file. The format is b
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1]
+
+### Changed
+
+- Published to pub.dev; `deploy.yml` publishes every `vX.Y.Z` tag through OIDC.
+- The line's checks in the Flutter app workflows (`dcm`, `l10n-verify`, `app-audit`) are off by
+  default; a caller turns on the ones its repository has.
+- `dart-package.yml` and `flutter-package.yml` run `publish-check`: the published set free of
+  secrets and build output, the version named in CHANGELOG.md.
+
 ## [1.0.0]
 
 ### Added

@@ -3,6 +3,7 @@ library;
 
 import 'dart:io';
 
+import 'package:dev_tool/src/test_report.dart';
 import 'package:test/test.dart';
 
 /// The runner end to end on a real package: the exit code follows the suite, the report lands under
@@ -69,7 +70,7 @@ void main() => test('fails', () => expect(1, 2));
       <String>['${Directory.current.path}/bin/test_workspace.dart', '--root', root.path],
       runInShell: Platform.isWindows,
     );
-    expect(run.exitCode, equals(1));
-    expect(run.stdout.toString(), contains('Some tests failed'));
+    expect(run.exitCode, equals(1), reason: '${run.stdout}${run.stderr}');
+    expect(reportVerdict('${root.path}/reports/e2e.json').ok, isFalse);
   });
 }

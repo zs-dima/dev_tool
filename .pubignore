@@ -1,5 +1,13 @@
 .github/
+.editorconfig
+.gitattributes
+.gitignore
 .dart_tool/
+fixtures/
+templates/
+zizmor.yml
+dart_test.yaml
+SECURITY.md
 build/
 coverage/
 reports/

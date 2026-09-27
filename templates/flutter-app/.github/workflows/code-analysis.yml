@@ -20,11 +20,10 @@ jobs:
   gate:
     uses: zs-dima/dev_tool/.github/workflows/flutter-app-gate.yml@v1
     with:
-      # This app's checks; the workflow lists every input.
+      # This app's checks; the workflow also takes unused-keys and setup-node.
+      dcm: true
       app-audit: true
       l10n-verify: true
-      unused-keys: false
-      setup-node: false
     secrets:
       DCM_CI_KEY: ${{ secrets.DCM_CI_KEY }}
       DCM_EMAIL: ${{ secrets.DCM_EMAIL }}
