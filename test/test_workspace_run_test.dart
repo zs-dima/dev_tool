@@ -1,3 +1,6 @@
+@Timeout(Duration(minutes: 5)) // a temporary package: pub get and the first compile of `dart test`
+library;
+
 import 'dart:io';
 
 import 'package:dev_tool/src/test_workspace.dart';
@@ -60,6 +63,7 @@ void main() => test('passes', () => expect(1, 1));
 import 'package:test/test.dart';
 void main() => test('fails', () => expect(1, 2));
 ''');
+    addTearDown(() => File('${root.path}/test/fail_test.dart').deleteSync()); // the order is random
     expect(await runTestWorkspace(<String>['--root', root.path]), equals(1));
   });
 }
