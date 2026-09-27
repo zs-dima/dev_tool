@@ -1,0 +1,20 @@
+# dev_tool templates/flutter-app/.github/dependabot.yml @1.0.0
+# The workspace root only: listing members fails every run. Pub git dependencies are not bumped
+# (`dart pub upgrade dev_tool` by hand).
+version: 2
+updates:
+  - package-ecosystem: pub
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      pub-minor-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

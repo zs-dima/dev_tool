@@ -1,0 +1,18 @@
+# dev_tool templates/dart-package/.pubignore @1.0.0
+.github/
+.vscode/
+.idea/
+*.iml
+.dart_tool/
+build/
+coverage/
+reports/
+pubspec.lock
+pubspec_overrides.yaml
+AGENTS.md
+CLAUDE.md
+justfile
+mise.toml
+dart_test.yaml
+.env
+.metadata

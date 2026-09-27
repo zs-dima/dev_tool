@@ -1,0 +1,28 @@
+# dev_tool templates/flutter-app/.gitattributes @1.0.0
+# LF everywhere: Windows' default `core.autocrlf=true` would check text out as CRLF.
+* text=auto eol=lf
+gradlew text eol=lf
+
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.webp    binary
+*.ico     binary
+*.gif     binary
+*.ogg     binary
+*.mp3     binary
+*.wav     binary
+*.ttf     binary
+*.otf     binary
+*.jar     binary
+*.aab     binary
+*.apk     binary
+*.jks     binary
+*.p8      binary
+*.p12     binary
+
+# Generated Dart is committed; collapsed in reviews.
+*.g.dart       linguist-generated=true
+*.freezed.dart linguist-generated=true
+*.gen.dart     linguist-generated=true
+packages/localization/lib/src/generated/** linguist-generated=true

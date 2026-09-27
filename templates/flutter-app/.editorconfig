@@ -1,0 +1,29 @@
+# dev_tool templates/flutter-app/.editorconfig @1.0.0
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# 120 columns: lints_tool's `formatter: page_width`.
+[*.dart]
+indent_style = space
+indent_size = 2
+max_line_length = 120
+
+[*.{yaml,yml,json,arb}]
+indent_style = space
+indent_size = 2
+
+[*.{kt,kts,gradle,swift}]
+indent_style = space
+indent_size = 4
+
+[justfile]
+indent_style = space
+indent_size = 4
+
+[*.md]
+trim_trailing_whitespace = false

@@ -1,0 +1,54 @@
+# dev_tool templates/flutter-app/.github/workflows/release-android.yml @1.0.0
+name: "Release · Android"
+
+# A dispatch with `publish` off is the build-only rehearsal; the first upload of an app is made by
+# hand in the Play Console.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      track:
+        description: "Play track. `alpha` is CLOSED testing."
+        type: choice
+        options: [alpha, internal, beta, production]
+        default: alpha
+      publish:
+        description: "Upload to Play. Off: build, sign and keep the bundle."
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-android
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    permissions:
+      contents: write # the GitHub Release with the bundle and the symbols
+      actions: read # the probe reads this repository's gate runs
+    uses: zs-dima/dev_tool/.github/workflows/flutter-app-release-android.yml@v1
+    with:
+      track: ${{ inputs.track || 'alpha' }}
+      publish: ${{ inputs.publish == true }}
+      play-auto-publish: ${{ vars.PLAY_AUTO_PUBLISH == 'true' }}
+      allow-unsymbolicated: ${{ vars.ALLOW_UNSYMBOLICATED == 'true' }}
+      # The same checks as code-analysis.yml, for a sha without a green push run.
+      app-audit: true
+      l10n-verify: true
+      unused-keys: false
+      setup-node: false
+    secrets:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+      DCM_CI_KEY: ${{ secrets.DCM_CI_KEY }}
+      DCM_EMAIL: ${{ secrets.DCM_EMAIL }}

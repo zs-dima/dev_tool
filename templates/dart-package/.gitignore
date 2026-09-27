@@ -1,0 +1,11 @@
+# dev_tool templates/dart-package/.gitignore @1.0.0
+.dart_tool/
+build/
+pubspec.lock
+pubspec_overrides.yaml
+coverage/
+reports/
+.env
+.idea/
+*.iml
+.DS_Store

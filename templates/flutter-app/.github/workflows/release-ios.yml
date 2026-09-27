@@ -1,0 +1,43 @@
+# dev_tool templates/flutter-app/.github/workflows/release-ios.yml @1.0.0
+name: "Release · iOS"
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Upload to App Store Connect. Off: build, sign and keep the symbols."
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-ios
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    permissions:
+      contents: read
+      actions: read
+    uses: zs-dima/dev_tool/.github/workflows/flutter-app-release-ios.yml@v1
+    with:
+      publish: ${{ inputs.publish == true }}
+      appstore-auto-publish: ${{ vars.APPSTORE_AUTO_PUBLISH == 'true' }}
+      allow-unsymbolicated: ${{ vars.ALLOW_UNSYMBOLICATED == 'true' }}
+      app-audit: true
+      l10n-verify: true
+      unused-keys: false
+      setup-node: false
+    secrets:
+      APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.APP_STORE_CONNECT_KEY_IDENTIFIER }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+      DCM_CI_KEY: ${{ secrets.DCM_CI_KEY }}
+      DCM_EMAIL: ${{ secrets.DCM_EMAIL }}

@@ -1,0 +1,6 @@
+# actionlint 1.7.12 predates `uses: $/...` (a workflow's own actions and workflows, GitHub 2026).
+paths:
+  .github/workflows/**/*.yml:
+    ignore:
+      - 'ref is missing'
+      - 'nor "./path/to/workflow.yml"'

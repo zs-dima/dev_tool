@@ -1,0 +1,7 @@
+# dev_tool templates/rust/.gitignore @1.0.0
+/target/
+**/*.rs.bk
+.env
+.idea/
+.DS_Store
+.claude/settings.local.json

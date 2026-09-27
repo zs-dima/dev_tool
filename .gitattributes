@@ -1,0 +1,4 @@
+# Text is stored with LF in the index; a checkout may convert, the repository never does.
+* text=auto eol=lf
+*.png binary
+*.jpg binary

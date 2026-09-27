@@ -1,0 +1,7 @@
+# Own workflows by tag (callers float at the major); third-party actions SHA-pinned.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "zs-dima/*": ref-pin
+        "*": hash-pin

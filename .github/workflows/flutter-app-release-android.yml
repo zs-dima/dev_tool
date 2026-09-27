@@ -1,0 +1,304 @@
+name: Flutter app release · Android
+
+# Build, sign and optionally publish a Flutter app to Google Play in one job. The gate's checks run
+# here only when no successful push run of the gate exists for this sha. The build number is
+# `dev_tool:build_number android`, the executable `just build-appbundle` calls.
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: "Runner labels as JSON; a self-hosted runner: '[\"self-hosted\",\"Linux\"]'."
+        type: string
+        default: '["ubuntu-latest"]'
+      timeout-minutes:
+        type: number
+        default: 90
+      track:
+        description: "Play track: `alpha` is CLOSED testing (the one that starts the testers clock)."
+        type: string
+        default: alpha
+      publish:
+        description: "Upload to Play (a dispatch's choice)."
+        type: boolean
+        default: false
+      play-auto-publish:
+        description: "Upload on a tag too; the caller passes `vars.PLAY_AUTO_PUBLISH == 'true'`, set after the first manual upload."
+        type: boolean
+        default: false
+      allow-unsymbolicated:
+        description: "Ship without Sentry symbols deliberately; the caller passes `vars.ALLOW_UNSYMBOLICATED == 'true'`."
+        type: boolean
+        default: false
+      gate-workflow:
+        description: "File name of the app's gate workflow, whose green push run on this sha skips the checks."
+        type: string
+        default: code-analysis.yml
+      codemagic-cli-tools:
+        description: "Pinned version of the Play upload CLI."
+        type: string
+        default: "0.69.0"
+      app-audit:
+        description: "Run the app's own `dart tool/newapp/audit.dart --ci`."
+        type: boolean
+        default: false
+      l10n-verify:
+        type: boolean
+        default: true
+      unused-keys:
+        type: boolean
+        default: false
+      setup-node:
+        type: boolean
+        default: false
+      node-version:
+        type: string
+        default: "24"
+      dcm:
+        type: boolean
+        default: true
+    secrets:
+      ANDROID_KEYSTORE_BASE64:
+        required: true
+      ANDROID_KEYSTORE_PASSWORD:
+        required: true
+      ANDROID_KEY_ALIAS:
+        required: true
+      ANDROID_KEY_PASSWORD:
+        required: true
+      PLAY_SERVICE_ACCOUNT_JSON:
+        required: false
+      SENTRY_AUTH_TOKEN:
+        required: false
+      SENTRY_ORG:
+        required: false
+      SENTRY_DSN:
+        required: false
+      DCM_CI_KEY:
+        required: false
+      DCM_EMAIL:
+        required: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    name: Build · Sign · Publish
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: write # the GitHub Release holding the bundle and the symbols
+      actions: read # the probe reads this repository's workflow runs
+    env:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      # A dispatch from a branch other than the default rehearses and never uploads.
+      PUBLISH: ${{ (inputs.publish || inputs.play-auto-publish) && (github.ref_type == 'tag' || github.ref_name == github.event.repository.default_branch) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # sentry's `set-commits --auto` walks back to the previous release
+          persist-credentials: false
+
+      # Before the build: a release without symbols is green and useless, and a copied
+      # `sentry.project` files them under another app.
+      - name: Sentry configuration expected
+        if: ${{ !inputs.allow-unsymbolicated }}
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        run: |
+          set -euo pipefail
+          for name in SENTRY_AUTH_TOKEN SENTRY_ORG SENTRY_DSN; do
+            [ -n "${!name:-}" ] || { echo "::error::$name is not set: the release would be unsymbolicated (or set ALLOW_UNSYMBOLICATED=true)."; exit 1; }
+          done
+          PROJECT=$(sed -n '/^sentry:/,/^[^ ]/s/^  project: *//p' pubspec.yaml | head -1)
+          [ -n "$PROJECT" ] || { echo "::error file=pubspec.yaml::sentry.project is not set"; exit 1; }
+          echo "Symbols go to Sentry project '$PROJECT'."
+
+      # A successful PUSH run of the gate on this sha (the tree that ships). curl, tr and grep only;
+      # any failure of the query ends as green=false, which runs the checks.
+      - name: Has this sha already passed the gate?
+        id: probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GATE: ${{ inputs.gate-workflow }}
+        run: |
+          set +e
+          URL="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/$GATE/runs?head_sha=$GITHUB_SHA&status=success&event=push&per_page=1"
+          BODY=$(curl -sS --max-time 30 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$URL")
+          COUNT=$(printf '%s' "$BODY" | tr ',' '\n' | grep -m1 '"total_count"' | tr -dc '0-9')
+          if [ "${COUNT:-0}" -gt 0 ] 2>/dev/null; then
+            echo "green=true" >> "$GITHUB_OUTPUT"
+            echo "Checks skipped: $GATE already passed on $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "green=false" >> "$GITHUB_OUTPUT"
+            echo "Checks running: no successful $GATE push run on $GITHUB_SHA (total_count=${COUNT:-unparsable})." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+
+      # Hosted: setup-java caches ~/.gradle. Self-hosted: one Gradle home per repository instead;
+      # four runners sharing ~/.gradle raced on transform workspaces and failed a release (2026-09-19).
+      - name: Setup Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: ${{ runner.environment == 'github-hosted' && 'gradle' || '' }}
+      - name: Gradle home per repository
+        if: runner.environment == 'self-hosted'
+        env:
+          REPO: ${{ github.event.repository.name }}
+        run: echo "GRADLE_USER_HOME=$GITHUB_WORKSPACE/../.gradle-$REPO" >> "$GITHUB_ENV"
+
+      # Codegen only for the checks; the green push run already compared the generated bytes.
+      - name: Setup Flutter
+        uses: $/.github/actions/setup-flutter
+        with:
+          codegen: ${{ steps.probe.outputs.green != 'true' }}
+
+      # Before the keystore exists in this job.
+      - name: Gate
+        if: ${{ steps.probe.outputs.green != 'true' }}
+        uses: $/.github/actions/gate-checks
+        with:
+          dcm: ${{ inputs.dcm }}
+          dcm-key: ${{ secrets.DCM_CI_KEY }}
+          dcm-email: ${{ secrets.DCM_EMAIL }}
+          github-token: ${{ github.token }}
+          app-audit: ${{ inputs.app-audit }}
+          l10n-verify: ${{ inputs.l10n-verify }}
+          unused-keys: ${{ inputs.unused-keys }}
+          setup-node: ${{ inputs.setup-node }}
+          node-version: ${{ inputs.node-version }}
+
+      # package:sqlite3 downloads its native library into `.dart_tool/` on every build (2026-09-14).
+      - name: Cache sqlite3 native assets
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .dart_tool/hooks_runner/shared
+          key: hooks-${{ runner.os }}-sqlite3-${{ hashFiles('pubspec.lock') }}
+
+      - name: Setup Python
+        if: env.PUBLISH == 'true'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install the Play upload CLI
+        if: env.PUBLISH == 'true'
+        env:
+          CLI_VERSION: ${{ inputs.codemagic-cli-tools }}
+        run: pip install --disable-pip-version-check "codemagic-cli-tools==$CLI_VERSION"
+
+      # Outside the workspace; opened and checked before the build.
+      - name: Restore upload keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            [ -n "${!name:-}" ] || { echo "::error::ANDROID_$name is not set"; exit 1; }
+          done
+          KEYSTORE="$RUNNER_TEMP/upload-keystore.jks"
+          # A pasted secret with a stray newline otherwise surfaces as "keystore password was incorrect".
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > "$KEYSTORE" 2>/dev/null \
+            || { echo "::error::ANDROID_KEYSTORE_BASE64 is not valid base64 (base64 -w0 upload-keystore.jks)"; exit 1; }
+          keytool -list -keystore "$KEYSTORE" -storepass "$KEYSTORE_PASSWORD" >/dev/null 2>&1 \
+            || { echo "::error::ANDROID_KEYSTORE_PASSWORD does not open the keystore"; exit 1; }
+          keytool -list -keystore "$KEYSTORE" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1 \
+            || { echo "::error::the keystore holds no key called '$KEY_ALIAS' (ANDROID_KEY_ALIAS)"; exit 1; }
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$KEYSTORE" "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > android/key.properties
+
+      # Read once: two clock reads can straddle a minute.
+      - name: Version
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then NAME="${GITHUB_REF_NAME#v}"; else
+            NAME="$(sed -n 's/^version: *\([^+ ]*\).*/\1/p' pubspec.yaml | head -1)"; fi
+          NUMBER="$(dart run dev_tool:build_number android)"
+          { echo "NAME=$NAME"; echo "NUMBER=$NUMBER"; } >> "$GITHUB_ENV"
+          echo "Building $NAME (+$NUMBER)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Release notes
+        run: dart run dev_tool:release_notes "$NAME"
+
+      # Gitignored; rebuilt from secrets so CI takes the same define path as the local recipe.
+      - name: config/keys.env
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        run: printf 'SENTRY_DSN=%s\n' "$SENTRY_DSN" > config/keys.env
+
+      - name: Build signed app bundle
+        timeout-minutes: 35
+        run: |
+          flutter build appbundle --release \
+            --build-name="$NAME" \
+            --build-number="$NUMBER" \
+            --dart-define-from-file=config/production.env \
+            --dart-define-from-file=config/keys.env \
+            --obfuscate --split-debug-info=build/symbols
+
+      - name: Size budget
+        env:
+          TRACK: ${{ inputs.track }}
+        run: |
+          if [ "$PUBLISH" = true ]; then PUBLISHED=yes; else PUBLISHED="no, build only"; fi
+          dart run dev_tool:size_gate \
+            --aab build/app/outputs/bundle/release/app-release.aab \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            --label "$NAME (+$NUMBER)" \
+            --row "Track=\`$TRACK\`" \
+            --row "Published=$PUBLISHED"
+
+      - name: Upload symbols to Sentry
+        if: ${{ env.SENTRY_AUTH_TOKEN != '' && env.SENTRY_ORG != '' }}
+        timeout-minutes: 10
+        run: dart run sentry_dart_plugin
+
+      # The first release of an app is uploaded by hand: the API sees only an app that has a bundle.
+      - name: Publish to Google Play
+        if: env.PUBLISH == 'true'
+        timeout-minutes: 15
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          TRACK: ${{ inputs.track }}
+        run: |
+          google-play bundles publish \
+            --bundle build/app/outputs/bundle/release/app-release.aab \
+            --track "$TRACK" \
+            --release-name "$NAME ($NUMBER)" \
+            --release-notes "$(cat build/release-notes.json)"
+
+      - name: Upload app bundle
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-bundle-${{ env.NAME }}-${{ env.NUMBER }}
+          path: build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: GitHub Release with bundle and symbols
+        if: ${{ github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tar -czf "build/symbols-$NAME.tar.gz" -C build symbols
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file build/release-notes/en-US.md \
+            --draft \
+            build/app/outputs/bundle/release/app-release.aab \
+            "build/symbols-$NAME.tar.gz"
+
+      # A self-hosted runner keeps the workspace between jobs.
+      - name: Remove signing material
+        if: always()
+        run: rm -f android/key.properties config/keys.env "$RUNNER_TEMP/upload-keystore.jks"

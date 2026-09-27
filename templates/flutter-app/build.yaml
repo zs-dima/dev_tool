@@ -1,0 +1,18 @@
+# dev_tool templates/flutter-app/build.yaml @1.0.0
+targets:
+  $default:
+    sources:
+      - $package$
+      - pubspec.yaml
+      - lib/**
+      - test/**
+      - assets/**
+    builders:
+      json_serializable:
+        options:
+          checked: true
+          field_rename: snake
+      drift_dev:
+        generate_for:
+          include:
+            - lib/_core/database/**

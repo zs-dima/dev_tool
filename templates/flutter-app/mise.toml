@@ -1,0 +1,4 @@
+# dev_tool templates/flutter-app/mise.toml @1.0.0
+# Flutter is not pinned here: CI derives it from the pubspec's `flutter: ">=X"` bound.
+[tools]
+just = "1.58.0"

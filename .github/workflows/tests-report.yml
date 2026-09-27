@@ -1,0 +1,21 @@
+name: Tests report
+
+# Nothing from the finished run is checked out or executed; the reporter parses its JSON.
+on: # zizmor: ignore[dangerous-triggers]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    permissions:
+      contents: read
+      actions: read
+      checks: write
+    uses: $/.github/workflows/test-report.yml
+    with:
+      reporter: dart-json
+      path: "**/tests.json"

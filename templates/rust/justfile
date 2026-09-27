@@ -1,0 +1,78 @@
+# dev_tool templates/rust/justfile @1.0.0
+# Copied once, then this repository's own. Needs `sh` on PATH (Windows: Git for Windows' `Git\bin`);
+# tools: `mise install`.
+
+default:
+    @just --list
+
+[group('gate')]
+check: fmt-check lint test doc deny
+
+[group('gate')]
+fmt-check:
+    cargo fmt --all --check
+
+# `cargo lint`, `cargo test-all` and `cargo doc-check` are aliases in .cargo/config.toml.
+[group('gate')]
+lint:
+    cargo lint
+
+[group('gate')]
+test *args:
+    cargo test-all {{ args }}
+
+[group('gate')]
+doc:
+    RUSTDOCFLAGS=-Dwarnings cargo doc-check
+
+[group('gate')]
+deny:
+    cargo deny check
+
+[group('dev')]
+build:
+    cargo build --release
+
+[group('dev')]
+run *args:
+    cargo run {{ args }}
+
+[group('dev')]
+watch:
+    bacon
+
+[group('dev')]
+fmt:
+    cargo fmt --all
+
+[group('dev')]
+clean:
+    cargo clean
+
+[group('deps')]
+outdated:
+    cargo update --dry-run --verbose
+
+[group('deps')]
+upgrade:
+    cargo update
+
+[group('deps')]
+tree:
+    cargo tree
+
+[group('deps')]
+tree-dup:
+    cargo tree --duplicates
+
+[group('deps')]
+publish-dry:
+    cargo publish --workspace --dry-run
+
+# Operator only: cargo-release bumps, commits, tags vX.Y.Z and pushes.
+[group('operator')]
+[script]
+release version:
+    [ -t 0 ] || { echo "release is an operator command: run it from a terminal"; exit 2; }
+    just check
+    cargo release "{{ version }}" --execute

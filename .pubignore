@@ -1,0 +1,14 @@
+.github/
+.dart_tool/
+build/
+coverage/
+reports/
+docs/
+pubspec.lock
+pubspec_overrides.yaml
+AGENTS.md
+CLAUDE.md
+PLAN.md
+justfile
+mise.toml
+.env

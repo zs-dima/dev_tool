@@ -1,0 +1,39 @@
+name: "Publish check"
+description: "pub publish --dry-run; the published set holds no secret or build output; CHANGELOG.md names the version."
+
+# `.pubignore` replaces `.gitignore` for pub, so a rule forgotten there uploads a key or build output
+# to pub.dev; the dry run alone does not refuse that.
+inputs:
+  tool:
+    description: "`dart` or `flutter`."
+    required: false
+    default: "dart"
+  working-directory:
+    required: false
+    default: "."
+
+runs:
+  using: composite
+  steps:
+    - name: Publish dry run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        TOOL: ${{ inputs.tool }}
+      run: |
+        "$TOOL" pub publish --dry-run 2>&1 | tee "$RUNNER_TEMP/publish-set.txt"
+        sed -E 's/.*[├└]── //; s/ \([^)]*\)$//' "$RUNNER_TEMP/publish-set.txt" \
+          | grep -iE '^([^ ]+\.(key|pem|p8|p12|jks|keystore)|credentials\.json|service-account[^ ]*\.json|\.env[^ ]*|(build|coverage|reports|node_modules)/?)$' \
+          > "$RUNNER_TEMP/leaked.txt" || true
+        if [ -s "$RUNNER_TEMP/leaked.txt" ]; then
+          echo "::error::the published set holds files that must not reach pub.dev (add them to .pubignore):"
+          cat "$RUNNER_TEMP/leaked.txt"
+          exit 1
+        fi
+
+    - name: CHANGELOG names the version
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        VERSION=$(sed -n 's/^version: *//p' pubspec.yaml | head -1)
+        grep -q "^## \[$VERSION\]" CHANGELOG.md || { echo "::error file=CHANGELOG.md::no section for $VERSION"; exit 1; }

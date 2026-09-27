@@ -1,0 +1,22 @@
+# dev_tool templates/flutter-app/.github/workflows/tests_reporter.yml @1.0.0
+name: "Tests Report"
+
+# Nothing from the finished run is checked out or executed; the reporter parses its JSON.
+on: # zizmor: ignore[dangerous-triggers]
+  workflow_run:
+    workflows: ["Code Analysis"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    permissions:
+      contents: read
+      actions: read
+      checks: write
+    uses: zs-dima/dev_tool/.github/workflows/test-report.yml@v1
+    with:
+      reporter: flutter-json
+      name: Flutter Tests

@@ -1,0 +1,5 @@
+include: package:lints_tool/lints_tool.yaml
+
+analyzer:
+  exclude:
+    - fixtures/**

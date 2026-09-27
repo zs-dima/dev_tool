@@ -1,0 +1,4 @@
+# dev_tool templates/rust/.gitattributes @1.0.0
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.png binary

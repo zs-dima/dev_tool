@@ -1,0 +1,7 @@
+# dev_tool templates/rust/mise.toml @1.0.0
+# The toolchain comes from rustup; these are the cargo subcommands the justfile runs.
+[tools]
+just = "1.58.0"
+cargo-deny = "0.20.2"
+cargo-release = "1.1.6"
+"cargo:bacon" = "3.26.0"

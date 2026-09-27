@@ -1,0 +1,53 @@
+name: CI
+
+# This repository's gate: the package through `dart-package.yml`, the workflows through actionlint
+# and zizmor, and a fixture Flutter app through `flutter-app-gate.yml` and `flutter-package.yml`.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    uses: $/.github/workflows/dart-package.yml
+    with:
+      publish-check: false
+
+  workflows:
+    name: Workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: actionlint zizmor
+      - run: actionlint
+      - run: actionlint templates/*/.github/workflows/*.yml
+      - run: zizmor --persona=regular .github templates
+
+  fixture-app:
+    uses: $/.github/workflows/flutter-app-gate.yml
+    with:
+      working-directory: fixtures/flutter_app
+      timeout-minutes: 30
+      l10n-verify: false
+      dcm: false
+      artifact-name: fixture-app-results
+
+  fixture-package:
+    uses: $/.github/workflows/flutter-package.yml
+    with:
+      working-directory: fixtures/flutter_app
+      publish-check: false
+      artifact-name: fixture-package-results

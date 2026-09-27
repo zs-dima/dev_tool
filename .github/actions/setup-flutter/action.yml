@@ -1,0 +1,114 @@
+name: "Setup Flutter"
+description: "Install the Flutter SDK the app is built against, resolve dependencies, regenerate code."
+
+# One bootstrap for every job that needs Flutter. The version is the pubspec's `flutter: ">=X"`
+# lower bound unless the caller pins one; three hand-kept copies of it drifted before (2026-09-14).
+inputs:
+  flutter-version:
+    description: "Exact version. Empty derives it from the pubspec's `flutter:` lower bound."
+    required: false
+    default: ""
+  working-directory:
+    description: "Package root, when it is not the repository root."
+    required: false
+    default: "."
+  version-from:
+    description: "Directory whose pubspec gives the Flutter version; defaults to working-directory. An example app names its package's."
+    required: false
+    default: ""
+  codegen:
+    description: "Run build_runner. The release path turns it off when the gate already proved the committed code current."
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve Flutter version
+      id: sdk
+      shell: bash
+      working-directory: ${{ inputs.version-from || inputs.working-directory }}
+      env:
+        PINNED: ${{ inputs.flutter-version }}
+      run: |
+        VERSION="${PINNED:-$(sed -n 's/^  flutter: ">=\(.*\)"$/\1/p' pubspec.yaml)}"
+        if [ -z "$VERSION" ]; then
+          echo "::error file=pubspec.yaml::no \`flutter: \">=X\"\` SDK lower bound to derive the version from"
+          exit 1
+        fi
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "Flutter $VERSION"
+
+    # A self-hosted runner keeps its tool cache, so a partial SDK (no readable .git, 2026-09-11)
+    # never heals by itself. A hosted runner has none.
+    - name: Drop a broken SDK from the tool cache
+      shell: bash
+      run: |
+        shopt -s nullglob
+        for sdk in "${RUNNER_TOOL_CACHE:-/opt/hostedtoolcache}"/flutter/*/flutter; do
+          git -C "$sdk" rev-parse --is-inside-work-tree >/dev/null 2>&1 && continue
+          echo "::warning::$sdk has no readable .git; removing $(dirname "$sdk") so a whole SDK is downloaded"
+          rm -rf "$(dirname "$sdk")"
+        done
+
+    - name: Setup Flutter
+      uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+      with:
+        flutter-version: ${{ steps.sdk.outputs.version }}
+        channel: stable
+        # Hosted only: a self-hosted runner keeps its tool cache, and restoring the 1.7 GB archive
+        # there cost 5.5 and 8.6 minutes in one release (2026-09-14).
+        cache: ${{ runner.environment == 'github-hosted' }}
+        pub-cache: ${{ runner.environment == 'github-hosted' }}
+        cache-key: "flutter-:os:-:channel:-:version:-:arch:-:hash:"
+
+    # `flutter pub get` fails with "not a clone of the GitHub project" when git refuses the SDK as
+    # dubiously owned (a self-hosted runner). GIT_CONFIG_*, because the runner's global git config
+    # may be read-only.
+    - name: The SDK is whole
+      shell: bash
+      run: |
+        ROOT="${FLUTTER_ROOT:-$(dirname "$(dirname "$(command -v flutter)")")}"
+        {
+          echo "GIT_CONFIG_COUNT=1"
+          echo "GIT_CONFIG_KEY_0=safe.directory"
+          echo "GIT_CONFIG_VALUE_0=$ROOT"
+        } >> "$GITHUB_ENV"
+        export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$ROOT"
+        if ! git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || ! flutter --version; then
+          echo "::error::Flutter SDK at $ROOT is not usable. Delete it on the runner and re-run; the action downloads a whole one."
+          exit 1
+        fi
+
+    - name: Resolve dependencies
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        flutter config --disable-analytics --no-cli-animations
+        flutter pub get
+
+    # The same lines as `just gen-ci`. pubspec_generator is a global tool, pinned here: as a
+    # dependency it breaks the app's resolution (2026-09-27). It runs where its output file exists.
+    - name: Generate code
+      if: inputs.codegen == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        if grep -q '^  build_runner:' pubspec.yaml; then
+          dart run build_runner build --delete-conflicting-outputs
+        else
+          echo "no build_runner dependency, nothing to generate"
+        fi
+        CONSTANTS=lib/_core/generated/constant/pubspec.yaml.g.dart
+        if [ -f "$CONSTANTS" ]; then
+          dart pub global activate pubspec_generator 5.0.2
+          dart pub global run pubspec_generator:generate --input pubspec.yaml --output "$CONSTANTS" --no-timestamp
+        fi
+
+    # drift and json_serializable emit 80 columns; the committed files are at 120, so the diff check
+    # needs this.
+    - name: Format generated code
+      if: inputs.codegen == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: dart format lib $( [ -d packages ] && echo packages )

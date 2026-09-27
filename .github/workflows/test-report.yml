@@ -1,0 +1,42 @@
+name: Test report
+
+# Renders a finished run's `test-results` artifact as a check. The caller is a `workflow_run`
+# workflow, so the report can write checks for Dependabot and fork pull requests too.
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        type: string
+        default: '["ubuntu-latest"]'
+      reporter:
+        description: "`flutter-json` for apps (per-package reports), `dart-json` for pure-Dart packages."
+        type: string
+        default: flutter-json
+      path:
+        description: "Report files inside the artifact."
+        type: string
+        default: "*.json"
+      name:
+        description: "Check name."
+        type: string
+        default: Tests
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+
+jobs:
+  report:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - name: Publish test report
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        with:
+          artifact: test-results
+          name: ${{ inputs.name }}
+          path: ${{ inputs.path }}
+          reporter: ${{ inputs.reporter }}
+          fail-on-error: false
