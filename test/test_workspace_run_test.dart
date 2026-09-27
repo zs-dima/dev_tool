@@ -3,7 +3,6 @@ library;
 
 import 'dart:io';
 
-import 'package:dev_tool/src/test_workspace.dart';
 import 'package:test/test.dart';
 
 /// The runner end to end on a real package: the exit code follows the suite, the report lands under
@@ -64,6 +63,13 @@ import 'package:test/test.dart';
 void main() => test('fails', () => expect(1, 2));
 ''');
     addTearDown(() => File('${root.path}/test/fail_test.dart').deleteSync()); // the order is random
-    expect(await runTestWorkspace(<String>['--root', root.path]), equals(1));
+    // As a child process, so the expected failure does not print into this suite's output.
+    final run = await Process.run(
+      'dart',
+      <String>['${Directory.current.path}/bin/test_workspace.dart', '--root', root.path],
+      runInShell: Platform.isWindows,
+    );
+    expect(run.exitCode, equals(1));
+    expect(run.stdout.toString(), contains('Some tests failed'));
   });
 }
