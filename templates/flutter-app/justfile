@@ -92,11 +92,11 @@ get:
     flutter pub get
 
 # CI's codegen, the same lines as dev_tool's setup-flutter action. pubspec_generator is a global
-# tool: as a dependency it breaks the app's resolution (2026-09-27).
+# tool at its latest version, never a dependency.
 [group('gen')]
 gen-ci:
     dart run build_runner build --delete-conflicting-outputs
-    dart pub global activate pubspec_generator 5.0.2
+    dart pub global activate pubspec_generator
     dart pub global run pubspec_generator:generate --input pubspec.yaml --output lib/_core/generated/constant/pubspec.yaml.g.dart --no-timestamp
     dart format lib packages
 

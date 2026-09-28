@@ -87,8 +87,8 @@ runs:
         flutter config --disable-analytics --no-cli-animations
         flutter pub get
 
-    # The same lines as `just gen-ci`. pubspec_generator is a global tool, pinned here: as a
-    # dependency it breaks the app's resolution (2026-09-27). It runs where its output file exists.
+    # The same lines as `just gen-ci`. pubspec_generator is a global tool at its latest version, never
+    # a dependency (it breaks the app's resolution); it runs where its output file exists.
     - name: Generate code
       if: inputs.codegen == 'true'
       shell: bash
@@ -101,7 +101,7 @@ runs:
         fi
         CONSTANTS=lib/_core/generated/constant/pubspec.yaml.g.dart
         if [ -f "$CONSTANTS" ]; then
-          dart pub global activate pubspec_generator 5.0.2
+          dart pub global activate pubspec_generator
           dart pub global run pubspec_generator:generate --input pubspec.yaml --output "$CONSTANTS" --no-timestamp
         fi
 

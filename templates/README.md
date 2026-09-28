@@ -21,7 +21,7 @@ A Flutter app of the line (a pub workspace with `tool/newapp/app.json`).
 | `mise.toml` | `just` only: the Flutter version is the pubspec's `flutter: ">=X"` bound, which CI derives. |
 | `.github/workflows/*.yml` | Callers of the reusable gate, releases and test report. Keep the file names and the name "Code Analysis": the release probe and the test report key on them. Per-app checks and runner labels (hosted by default; `runs-on`, `mac-runs-on` for self-hosted) are the `with:` inputs. |
 | `.github/dependabot.yml` | Root only (a pub workspace has one lock). |
-| `build.yaml` | The app's builders. `pubspec_generator` is not among them: as a dependency it breaks the app's resolution, so `just gen-ci` and CI run it as a pinned global tool. |
+| `build.yaml` | The app's builders. `pubspec_generator` is not among them: as a dependency it breaks the app's resolution, so `just gen-ci` and CI run it as a global tool at its latest version. |
 | `config/keys.env.example` | Copied to the gitignored `config/keys.env`; `just check-keys` allows only `app.json` `keys`. |
 | `.editorconfig`, `.gitattributes`, `.gitignore` | LF everywhere, generated Dart collapsed in reviews, secrets never committed. |
 

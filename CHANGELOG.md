@@ -12,6 +12,8 @@ All notable changes to this project are documented in this file. The format is b
   default; a caller turns on the ones its repository has.
 - `dart-package.yml` and `flutter-package.yml` run `publish-check`: the published set free of
   secrets and build output, the version named in CHANGELOG.md.
+- `setup-flutter` runs pubspec_generator as a global tool at its latest version after build_runner,
+  where the app has `lib/_core/generated/constant/pubspec.yaml.g.dart`.
 
 ## [1.0.0]
 
