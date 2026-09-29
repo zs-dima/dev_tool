@@ -10,84 +10,73 @@ import 'package:test/test.dart';
 void main() {
   const now = 1790000000;
 
-  test('Android uses the app\'s own clock from app.json', () {
+  test("a platform's own clock comes from dev_tool.release in the pubspec", () {
     // BreakerSonar's pair, from its release-android.yml: (1790000000 - 1788877826) / 60 = 18702.
-    final clock = releaseClock(<String, Object?>{
+    final config = parseConfig(<String, Object?>{
       'release': <String, Object?>{
-        'android': <String, Object?>{'versionCodeBase': 1788806426, 'versionCodeT0': 1788877826},
+        'android': <String, Object?>{'build_number_base': 1788806426, 'build_number_t0': 1788877826},
       },
-    }, 'android');
-    expect(buildNumber(clock, now), equals(1788806426 + 18702));
+    });
+    expect(buildNumber(config.clock('android'), now), equals(1788806426 + 18702));
   });
 
-  test('without a release block both platforms use the line clock: minutes since 2020', () {
-    for (final platform in <String>['android', 'ios']) {
-      final clock = releaseClock(const <String, Object?>{}, platform);
-      expect(clock, equals((base: 0, t0: kLineEpoch)));
-      expect(buildNumber(clock, now), equals((now - kLineEpoch) ~/ 60), reason: platform);
+  test('without a clock every platform counts minutes since 2020', () {
+    for (final platform in <String>['android', 'ios', 'windows']) {
+      expect(const DevToolConfig().clock(platform), equals(kDefaultClock), reason: platform);
     }
-    expect(buildNumber((base: 0, t0: kLineEpoch), now), equals(3536053), reason: 'seven digits, as the iOS floor is');
+    expect(buildNumber(kDefaultClock, now), equals(3536053), reason: 'seven digits, as the iOS floor is');
   });
 
   test('one number per minute: the same minute gives the same number, the next gives one more', () {
-    const clock = (base: 0, t0: kLineEpoch);
-    const minute = kLineEpoch + 60 * 1000;
-    expect(buildNumber(clock, minute), equals(buildNumber(clock, minute + 59)));
-    expect(buildNumber(clock, minute + 60), equals(buildNumber(clock, minute) + 1));
+    const minute = 1577836800 + 60 * 1000;
+    expect(buildNumber(kDefaultClock, minute), equals(buildNumber(kDefaultClock, minute + 59)));
+    expect(buildNumber(kDefaultClock, minute + 60), equals(buildNumber(kDefaultClock, minute) + 1));
   });
 
-  test('a number above Play\'s ceiling is refused here, not at upload', () {
-    expect(() => buildNumber((base: kPlayCeiling, t0: kLineEpoch), kLineEpoch + 60), throwsA(isA<UsageException>()));
+  test("a number above Play's ceiling is refused here, not at upload", () {
+    expect(() => buildNumber((base: kPlayCeiling, t0: now), now + 60), throwsA(isA<UsageException>()));
   });
 
-  test('a half-written release block is an error, not the line clock', () {
-    expect(
-      () => releaseClock(<String, Object?>{
-        'release': <String, Object?>{
-          'android': <String, Object?>{'versionCodeBase': 1},
-        },
-      }, 'android'),
-      throwsA(isA<UsageException>()),
-    );
-    expect(() => releaseClock(const <String, Object?>{}, 'web'), throwsA(isA<UsageException>()));
-  });
-
-  test('a release block that is not an object is refused, not read as the line clock', () {
-    expect(
-      () => releaseClock(<String, Object?>{
-        'release': <String, Object?>{
-          'android': <int>[1788816828, 1788869018],
-        },
-      }, 'android'),
-      throwsA(isA<UsageException>()),
-    );
-    expect(() => releaseClock(<String, Object?>{'release': 'later'}, 'ios'), throwsA(isA<UsageException>()));
-  });
-
-  test('an unknown option is refused, not ignored', () {
+  test('a platform name that is not an identifier, or an unknown option, is refused', () {
+    expect(() => runBuildNumber(<String>['Android']), throwsA(isA<UsageException>()));
     expect(
       () => runBuildNumber(<String>['android', '--at-seconds', '5']),
-      throwsA(isA<UsageException>().having((e) => e.message, 'message', contains('--at-seconds'))),
+      throwsA(isA<UsageException>().having((e) => e.message, 'message', contains('at-seconds'))),
     );
+    expect(() => runBuildNumber(<String>[]), throwsA(isA<UsageException>()));
   });
 
-  test('the executable prints the number and nothing else', () async {
-    final root = Directory.systemTemp.createTempSync('dev_tool_build_number');
-    addTearDown(() => root.deleteSync(recursive: true));
-    File('${root.path}/tool/newapp/app.json')
-      ..createSync(recursive: true)
-      ..writeAsStringSync('{"release": {"android": {"versionCodeBase": 1788806426, "versionCodeT0": 1788877826}}}');
-    final run = await Process.run('dart', <String>[
-      'run',
-      'dev_tool:build_number',
-      'android',
-      '--root',
-      root.path,
-      '--at',
-      '$now',
-    ], runInShell: Platform.isWindows);
-    expect(run.exitCode, isZero, reason: run.stderr.toString());
-    expect(run.stdout.toString().trim(), equals('1788825128'));
-    expect(run.stdout.toString().trim().split('\n'), hasLength(1));
+  group('the executable', () {
+    late Directory root;
+
+    setUp(() {
+      root = Directory.systemTemp.createTempSync('dev_tool_build_number');
+      File('${root.path}/pubspec.yaml').writeAsStringSync('''
+name: app
+dev_tool:
+  release:
+    android: {build_number_base: 1788806426, build_number_t0: 1788877826}
+''');
+    });
+    tearDown(() => root.deleteSync(recursive: true));
+
+    Future<ProcessResult> run(List<String> args) =>
+        Process.run('dart', <String>['run', 'dev_tool:build_number', ...args], runInShell: Platform.isWindows);
+
+    test('prints the number and nothing else', () async {
+      final result = await run(<String>['android', '--root', root.path, '--at', '$now']);
+      expect(result.exitCode, isZero, reason: result.stderr.toString());
+      expect(result.stdout.toString().trim(), equals('1788825128'));
+      expect(result.stdout.toString().trim().split('\n'), hasLength(1));
+    });
+
+    test('--help prints the usage and exits 0; a usage error exits 2', () async {
+      final help = await run(<String>['--help']);
+      expect(help.exitCode, isZero);
+      expect(help.stdout.toString(), contains('usage: build_number <platform>'));
+      final wrong = await run(<String>['--root', root.path]);
+      expect(wrong.exitCode, equals(2));
+      expect(wrong.stderr.toString(), contains('missing arguments'));
+    });
   });
 }

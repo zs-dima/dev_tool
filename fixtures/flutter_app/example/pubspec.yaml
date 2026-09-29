@@ -1,0 +1,14 @@
+name: fixture_example
+description: The fixture's example app, analyzed and built by flutter-gate.yml's example job.
+publish_to: none
+
+environment:
+  sdk: ^3.13.4
+  flutter: ">=3.47.5"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  lints_tool: ^1.1.1

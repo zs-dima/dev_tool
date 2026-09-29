@@ -1,0 +1,365 @@
+name: Flutter release · iOS
+
+# Archive, sign and optionally upload a Flutter app to App Store Connect. The gate job (the probe,
+# and the checks only when no green push run exists for this commit) runs on Linux; only the archive
+# needs a Mac. Signing uses the App Store Connect API key with `-allowProvisioningUpdates`, nothing
+# installed per run. `flutter build ipa` cannot pass the key to xcodebuild, so the repository's
+# `just <build-recipe>` configures the project (`flutter build ios --config-only` with its defines)
+# and xcodebuild archives, exports and uploads.
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "The app's root inside the repository."
+        type: string
+        default: "."
+      runs-on:
+        description: "Runner of the gate job (Linux), labels as JSON."
+        type: string
+        default: '["ubuntu-latest"]'
+      mac-runs-on:
+        description: "Runner of the archive job, labels as JSON; a self-hosted Mac: '[\"self-hosted\",\"macOS\",\"ARM64\"]'."
+        type: string
+        default: '["macos-latest"]'
+      timeout-minutes:
+        type: number
+        default: 60
+      flutter-version:
+        description: "Exact Flutter version; empty derives it from the pubspec's `flutter:` constraint."
+        type: string
+        default: ""
+      build-recipe:
+        description: "The just recipe that runs `flutter build ios --release --config-only` from BUILD_NAME and BUILD_NUMBER."
+        type: string
+        default: build-ios-config
+      export-options:
+        description: "The export options plist (method app-store-connect, destination export)."
+        type: string
+        default: ios/ExportOptions.plist
+      keys-file:
+        description: "Where the KEYS_ENV secret is written, checked by `dev_tool:check_keys`; the build recipe must read the same file."
+        type: string
+        default: config/keys.env
+      publish:
+        description: "Upload to App Store Connect (a dispatch's choice)."
+        type: boolean
+        default: false
+      appstore-auto-publish:
+        description: "Upload on a tag too; the caller passes `vars.APPSTORE_AUTO_PUBLISH == 'true'`."
+        type: boolean
+        default: false
+      sentry:
+        description: "The app reports to Sentry: its symbols are uploaded and a missing Sentry setting fails the release."
+        type: boolean
+        default: false
+      allow-unsymbolicated:
+        description: "Ship without Sentry symbols deliberately; the caller passes `vars.ALLOW_UNSYMBOLICATED == 'true'`."
+        type: boolean
+        default: false
+      gate-workflow:
+        description: "File name of the app's gate workflow, whose green push run on this commit skips the checks."
+        type: string
+        default: code-analysis.yml
+      codegen:
+        description: "As the gate's: `none`, `committed` or `ignored`."
+        type: string
+        default: none
+      codegen-recipe:
+        type: string
+        default: gen
+      format-exclude:
+        type: string
+        default: ""
+      extra-checks:
+        type: string
+        default: ""
+      dcm:
+        type: boolean
+        default: false
+      dcm-args:
+        type: string
+        default: "--no-fatal-warnings --no-fatal-style"
+    secrets:
+      APP_STORE_CONNECT_KEY_IDENTIFIER:
+        required: true
+      APP_STORE_CONNECT_ISSUER_ID:
+        required: true
+      APP_STORE_CONNECT_PRIVATE_KEY:
+        required: true
+      KEYS_ENV:
+        description: "The keys file's content, one KEY=value per line; every key must be in dev_tool.keys."
+        required: false
+      SENTRY_AUTH_TOKEN:
+        required: false
+      SENTRY_ORG:
+        required: false
+      DCM_CI_KEY:
+        required: false
+      DCM_EMAIL:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Gate
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      actions: read # the gate probe reads this repository's workflow runs
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Gate probe
+        id: probe
+        uses: $/.github/actions/gate-probe
+        with:
+          gate-workflow: ${{ inputs.gate-workflow }}
+
+      - name: Checkout
+        if: steps.probe.outputs.green != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup just
+        if: ${{ steps.probe.outputs.green != 'true' && (inputs.codegen != 'none' || inputs.extra-checks != '') }}
+        uses: $/.github/actions/setup-just
+        with:
+          working-directory: ${{ inputs.working-directory }}
+
+      - name: Setup Flutter
+        if: steps.probe.outputs.green != 'true'
+        uses: $/.github/actions/setup-flutter
+        with:
+          flutter-version: ${{ inputs.flutter-version }}
+          working-directory: ${{ inputs.working-directory }}
+          codegen-recipe: ${{ inputs.codegen != 'none' && inputs.codegen-recipe || '' }}
+
+      - name: Formatting
+        if: steps.probe.outputs.green != 'true'
+        uses: $/.github/actions/format-check
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          exclude: ${{ inputs.format-exclude }}
+
+      - name: Gate
+        if: steps.probe.outputs.green != 'true'
+        uses: $/.github/actions/gate-checks
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          codegen: ${{ inputs.codegen }}
+          codegen-recipe: ${{ inputs.codegen-recipe }}
+          extra-checks: ${{ inputs.extra-checks }}
+          dcm: ${{ inputs.dcm }}
+          dcm-args: ${{ inputs.dcm-args }}
+          dcm-key: ${{ secrets.DCM_CI_KEY }}
+          dcm-email: ${{ secrets.DCM_EMAIL }}
+
+  build:
+    name: Archive · Sign · Upload
+    needs: gate
+    runs-on: ${{ fromJSON(inputs.mac-runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_IDENTIFIER }}
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      KEYS_FILE: ${{ inputs.keys-file }}
+      EXPORT_OPTIONS: ${{ inputs.export-options }}
+      # A dispatch from a branch other than the default rehearses and never uploads.
+      PUBLISH: ${{ (inputs.publish || inputs.appstore-auto-publish) && (github.ref_type == 'tag' || github.ref_name == github.event.repository.default_branch) }}
+    steps:
+      - name: Xcode and disk
+        working-directory: .
+        run: |
+          { echo "ASC_KEY=$RUNNER_TEMP/AuthKey.p8"; echo "ARCHIVE=$RUNNER_TEMP/Runner.xcarchive"; } >> "$GITHUB_ENV"
+          xcodebuild -version
+          MAJOR=$(xcodebuild -version | sed -n '1s/Xcode \([0-9]*\).*/\1/p')
+          # App Store uploads require Xcode 26+ since 2026-04-28.
+          [ "${MAJOR:-0}" -ge 26 ] || { echo "::error::Xcode $MAJOR is below the App Store minimum of 26"; exit 1; }
+          FREE=$(df -g / | awk 'NR==2 {print $4}')
+          [ "$FREE" -ge 20 ] || { echo "::error::only ${FREE}G free; an archive with a fresh SDK needs 20G"; exit 1; }
+
+      - name: App Store Connect and Sentry configuration expected
+        working-directory: .
+        env:
+          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          CHECK_SENTRY: ${{ inputs.sentry && !inputs.allow-unsymbolicated }}
+        run: |
+          MISSING=""
+          for name in ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY; do [ -n "${!name}" ] || MISSING="$MISSING $name"; done
+          if [ "$CHECK_SENTRY" = "true" ]; then
+            for name in SENTRY_AUTH_TOKEN SENTRY_ORG; do [ -n "${!name}" ] || MISSING="$MISSING $name"; done
+          fi
+          [ -z "$MISSING" ] || { echo "::error::missing secrets:$MISSING"; exit 1; }
+
+      # Before the archive: `errSecInternalComponent` mid-archive means the runner's session cannot
+      # reach the key. A hosted Mac signs in the cloud.
+      - name: codesign can reach the signing key
+        if: runner.environment == 'self-hosted'
+        working-directory: .
+        run: |
+          ID=$(security find-identity -v -p codesigning | sed -n '1s/.*\([0-9A-F]\{40\}\).*/\1/p')
+          [ -n "$ID" ] || { echo "::error::no code-signing identity in this session's keychain"; exit 1; }
+          PROBE="$RUNNER_TEMP/codesign-probe"; cp /usr/bin/true "$PROBE"
+          codesign --force --sign "$ID" "$PROBE" || { echo "::error::codesign cannot use the key in this session"; exit 1; }
+          rm -f "$PROBE"
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # sentry's `set-commits --auto` walks back to the previous release
+          persist-credentials: false
+
+      # A copied pubspec files the symbols under another app's Sentry project without any error.
+      - name: Sentry project expected
+        if: ${{ inputs.sentry && !inputs.allow-unsymbolicated }}
+        run: |
+          PROJECT=$(sed -n '/^sentry:/,/^[^ ]/s/^  project: *//p' pubspec.yaml | head -1)
+          [ -n "$PROJECT" ] || { echo "::error file=pubspec.yaml::sentry.project is not set"; exit 1; }
+
+      - name: Setup just
+        uses: $/.github/actions/setup-just
+        with:
+          working-directory: ${{ inputs.working-directory }}
+
+      - name: Setup Flutter
+        uses: $/.github/actions/setup-flutter
+        with:
+          flutter-version: ${{ inputs.flutter-version }}
+          working-directory: ${{ inputs.working-directory }}
+
+      # Read once: two clock reads can straddle a minute. A tag must name the pubspec's version.
+      - name: Version
+        run: |
+          PUBSPEC=$(sed -n 's/^version: *\([^+ ]*\).*/\1/p' pubspec.yaml | head -1 | tr -d "\"'")
+          NAME="$PUBSPEC"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            NAME="${GITHUB_REF_NAME#v}"
+            [ "$NAME" = "$PUBSPEC" ] || { echo "::error file=pubspec.yaml::the tag is $GITHUB_REF_NAME, pubspec.yaml says $PUBSPEC"; exit 1; }
+          fi
+          NUMBER="$(dart run dev_tool:build_number ios)"
+          { echo "BUILD_NAME=$NAME"; echo "BUILD_NUMBER=$NUMBER"; } >> "$GITHUB_ENV"
+          echo "Building $NAME (+$NUMBER)" >> "$GITHUB_STEP_SUMMARY"
+
+      # The keys file is compiled in; the API key is xcodebuild's, removed in the always() step.
+      - name: Keys file and the App Store Connect key
+        env:
+          KEYS_ENV: ${{ secrets.KEYS_ENV }}
+          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          CHECK_SENTRY: ${{ inputs.sentry && !inputs.allow-unsymbolicated }}
+        run: |
+          umask 077
+          mkdir -p "$(dirname "$KEYS_FILE")"
+          printf '%s\n' "$KEYS_ENV" > "$KEYS_FILE"
+          dart run dev_tool:check_keys --file "$KEYS_FILE"
+          if [ "$CHECK_SENTRY" = "true" ]; then
+            grep -Eq '^SENTRY_DSN=.+' "$KEYS_FILE" || { echo "::error::KEYS_ENV has no SENTRY_DSN: the app would report nowhere."; exit 1; }
+          fi
+          printf '%s\n' "$ASC_PRIVATE_KEY" > "$ASC_KEY"
+
+      - name: Configure the project
+        env:
+          RECIPE: ${{ inputs.build-recipe }}
+          CHECK_SYMBOLS: ${{ inputs.sentry }}
+        run: |
+          just "$RECIPE"
+          CFG=ios/Flutter/Generated.xcconfig
+          grep -Fqx "FLUTTER_BUILD_NUMBER=$BUILD_NUMBER" "$CFG" || { echo "::error::$CFG does not carry $BUILD_NUMBER"; exit 1; }
+          grep -Fqx "FLUTTER_BUILD_NAME=$BUILD_NAME" "$CFG" || { echo "::error::$CFG does not carry $BUILD_NAME"; exit 1; }
+          # Without these the archive succeeds and every stack trace Sentry receives is unreadable.
+          if [ "$CHECK_SYMBOLS" = "true" ]; then
+            grep -Fqx 'DART_OBFUSCATION=true' "$CFG" || { echo "::error::$CFG lost DART_OBFUSCATION"; exit 1; }
+            grep -q '^SPLIT_DEBUG_INFO=' "$CFG" || { echo "::error::$CFG lost SPLIT_DEBUG_INFO"; exit 1; }
+          fi
+
+      - name: Archive and export
+        timeout-minutes: 45
+        run: |
+          [ -f "$EXPORT_OPTIONS" ] || { echo "::error file=$EXPORT_OPTIONS::missing"; exit 1; }
+          AUTH=(-allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY"
+                -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+          # caffeinate: the Mac must not sleep mid-archive.
+          caffeinate -dims xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner \
+            -configuration Release -sdk iphoneos -destination generic/platform=iOS \
+            -archivePath "$ARCHIVE" archive "${AUTH[@]}"
+          xcodebuild -exportArchive -archivePath "$ARCHIVE" \
+            -exportPath "$RUNNER_TEMP/ipa" -exportOptionsPlist "$EXPORT_OPTIONS" "${AUTH[@]}"
+
+      # The .app (codesign misreads the .ipa) carries the asked-for version, an Apple Distribution
+      # signature and a TestFlight profile.
+      - name: The IPA is what was asked for
+        run: |
+          set -- "$RUNNER_TEMP"/ipa/*.ipa; IPA="$1"
+          [ -f "$IPA" ] || { echo "::error::no IPA was exported"; exit 1; }
+          rm -rf "$RUNNER_TEMP/check"; unzip -q -o "$IPA" -d "$RUNNER_TEMP/check"
+          set -- "$RUNNER_TEMP"/check/Payload/*.app; APP="$1"
+          BUILT=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")
+          SHORT=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")
+          if [ "$BUILT" != "$BUILD_NUMBER" ] || [ "$SHORT" != "$BUILD_NAME" ]; then
+            echo "::error::built $SHORT ($BUILT), asked for $BUILD_NAME ($BUILD_NUMBER)"; exit 1
+          fi
+          codesign -dvv "$APP" 2>&1 | grep -q '^Authority=Apple Distribution' || { echo "::error::not signed by an Apple Distribution identity"; exit 1; }
+          security cms -D -i "$APP/embedded.mobileprovision" 2>/dev/null | grep -q 'beta-reports-active' \
+            || { echo "::error::the embedded profile is not a store/TestFlight profile"; exit 1; }
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+
+      - name: Size
+        run: dart run dev_tool:size_gate --file "$IPA" --summary "$GITHUB_STEP_SUMMARY" --label "$BUILD_NAME (+$BUILD_NUMBER)"
+
+      - name: Upload symbols to Sentry
+        if: ${{ inputs.sentry && env.SENTRY_AUTH_TOKEN != '' && env.SENTRY_ORG != '' }}
+        timeout-minutes: 10
+        run: dart run sentry_dart_plugin
+
+      # Unregenerable; the IPA is not kept (nobody outside TestFlight can install it).
+      - name: Keep the symbols
+        continue-on-error: true
+        run: |
+          mkdir -p build/dSYMs
+          cp -R "$ARCHIVE/dSYMs/." build/dSYMs/ 2>/dev/null || true
+      - name: Upload symbols
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-symbols-${{ env.BUILD_NAME }}-${{ env.BUILD_NUMBER }}
+          path: |
+            ${{ inputs.working-directory }}/build/symbols
+            ${{ inputs.working-directory }}/build/dSYMs
+          if-no-files-found: warn
+          retention-days: 7
+
+      # The same archive, exported once more with destination upload: xcodebuild sends it with the
+      # API key, and the build number stays ours (manageAppVersionAndBuildNumber off).
+      - name: Upload to App Store Connect
+        if: env.PUBLISH == 'true'
+        timeout-minutes: 20
+        run: |
+          OPTIONS="$RUNNER_TEMP/upload-options.plist"
+          cp "$EXPORT_OPTIONS" "$OPTIONS"
+          plutil -replace destination -string upload "$OPTIONS"
+          plutil -replace manageAppVersionAndBuildNumber -bool NO "$OPTIONS"
+          xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportPath "$RUNNER_TEMP/upload" \
+            -exportOptionsPlist "$OPTIONS" -allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY" \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          echo "Uploaded $BUILD_NAME (+$BUILD_NUMBER); TestFlight shows it after Apple's processing." >> "$GITHUB_STEP_SUMMARY"
+
+      # A self-hosted runner keeps the workspace between jobs.
+      - name: Remove the keys
+        if: always()
+        working-directory: .
+        env:
+          APP_DIR: ${{ inputs.working-directory }}
+        run: rm -f "$ASC_KEY" "$APP_DIR/$KEYS_FILE"

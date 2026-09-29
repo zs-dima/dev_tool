@@ -1,26 +1,28 @@
-# dev_tool templates/dart-package/justfile @1.0.0
+# dev_tool templates/dart-package/justfile @2.0.0
 # Copied once, then this repository's own. Needs `sh` on PATH (Windows: Git for Windows' `Git\bin`).
 
-# `flutter` for a package that needs the Flutter SDK.
+# `flutter` for a package that needs the Flutter SDK (and flutter-gate.yml in CI).
 TOOL := 'dart'
 
 default:
     @just --list
 
+# What CI's gate runs.
 [group('gate')]
 check: format-check analyze test publish-check
 
+# Hand-written Dart only: generated `*.*.dart` stays as its generator emits it.
 [group('gate')]
 format-check:
-    dart format --output=none --set-exit-if-changed .
+    git ls-files -z -- '*.dart' ':(exclude,glob)**/*.*.dart' | xargs -0 -r dart format --output=none --set-exit-if-changed
 
 [group('gate')]
 analyze:
-    {{ TOOL }} analyze --fatal-infos --fatal-warnings
+    {{ if TOOL == "flutter" { "flutter analyze" } else { "dart analyze --fatal-infos --fatal-warnings" } }}
 
 [group('gate')]
 test *args:
-    {{ TOOL }} test {{ args }}
+    {{ TOOL }} test --test-randomize-ordering-seed=random {{ args }}
 
 [group('gate')]
 publish-check:
@@ -37,7 +39,7 @@ get:
 
 [group('dev')]
 format:
-    dart format .
+    git ls-files -z -- '*.dart' ':(exclude,glob)**/*.*.dart' | xargs -0 -r dart format
 
 [group('dev')]
 fix:
@@ -51,7 +53,8 @@ outdated:
 clean:
     rm -rf .dart_tool build coverage reports
 
-# Operator only: gate, bump, commit, tag vX.Y.Z, push (deploy.yml publishes the tag).
+# Operator only: gate, bump, commit, push, wait for CI on that commit, then tag vX.Y.Z, which
+# deploy.yml publishes. A tag on a commit CI has not passed would publish it anyway.
 [group('operator')]
 [script]
 release version:
@@ -63,6 +66,16 @@ release version:
     sed "s/^version: .*/version: {{ version }}/" pubspec.yaml > pubspec.yaml.tmp && mv pubspec.yaml.tmp pubspec.yaml
     git add pubspec.yaml
     git diff --cached --quiet || git commit --quiet -m "chore: release {{ version }}"
+    git push --quiet origin HEAD
+    sha="$(git rev-parse HEAD)"
+    run=""
+    for _ in $(seq 1 30); do
+      run="$(gh run list --commit "$sha" --workflow ci.yml --json databaseId --jq '.[0].databaseId')"
+      [ -n "$run" ] && break
+      sleep 10
+    done
+    [ -n "$run" ] || { echo "no CI run for $sha within 5 minutes: tag it by hand once it is green"; exit 1; }
+    gh run watch "$run" --exit-status || { echo "CI failed on $sha: not tagged"; exit 1; }
     git tag "v{{ version }}"
-    git push --quiet origin HEAD "v{{ version }}"
+    git push --quiet origin "v{{ version }}"
     echo "pushed v{{ version }}"

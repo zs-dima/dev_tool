@@ -1,4 +1,4 @@
-# dev_tool templates/flutter-app/.github/workflows/release-ios.yml @1.0.0
+# dev_tool templates/flutter-app/.github/workflows/release-ios.yml @2.0.0
 name: "Release · iOS"
 
 on:
@@ -22,21 +22,22 @@ jobs:
   release:
     permissions:
       contents: read
-      actions: read
-    uses: zs-dima/dev_tool/.github/workflows/flutter-app-release-ios.yml@v1
+      actions: read # the gate probe reads this repository's workflow runs
+    uses: zs-dima/dev_tool/.github/workflows/flutter-release-ios.yml@v2
     with:
       publish: ${{ inputs.publish == true }}
       appstore-auto-publish: ${{ vars.APPSTORE_AUTO_PUBLISH == 'true' }}
+      sentry: true
       allow-unsymbolicated: ${{ vars.ALLOW_UNSYMBOLICATED == 'true' }}
-      dcm: true
-      app-audit: true
-      l10n-verify: true
+      # The gate inputs of code-analysis.yml, for a commit without a green push run.
+      codegen: committed
+      extra-checks: gate-extra
     secrets:
       APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.APP_STORE_CONNECT_KEY_IDENTIFIER }}
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+      # The keys file, one KEY=value per line; each key must be in dev_tool.keys.
+      KEYS_ENV: |
+        SENTRY_DSN=${{ secrets.SENTRY_DSN }}
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-      DCM_CI_KEY: ${{ secrets.DCM_CI_KEY }}
-      DCM_EMAIL: ${{ secrets.DCM_EMAIL }}

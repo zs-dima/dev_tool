@@ -2,11 +2,16 @@
 /// (gitignored): `kit link` while a package and its consumer change together, `kit unlink` before
 /// committing. The set is derived from the pubspecs: the apps' hand-written map had fallen three
 /// packages behind by 2026-09-27.
+///
+/// The root's file covers the root and its workspace members; each standalone Dart package among
+/// `dev_tool.test.extra` gets its own, because pub resolves it on its own and the test runner tests it.
 library;
 
 import 'dart:io';
 
 import 'package:dev_tool/src/cli.dart';
+import 'package:dev_tool/src/config.dart';
+import 'package:dev_tool/src/workspace.dart';
 import 'package:yaml/yaml.dart';
 
 /// The file this writes and removes.
@@ -16,11 +21,11 @@ const String kOverrides = 'pubspec_overrides.yaml';
 /// sub-path, hosted ones by package name.
 typedef KitDependency = ({String name, String repo, String subpath});
 
-/// The replaceable direct dependencies of the repository at [root], sorted by name; path and SDK
-/// dependencies are never linked.
-List<KitDependency> kitDependencies(String root) {
+/// The replaceable direct dependencies in [pubspecs], sorted by name; path and SDK dependencies are
+/// never linked.
+List<KitDependency> kitDependencies(Iterable<YamlMap> pubspecs) {
   final found = <String, KitDependency>{};
-  for (final pubspec in _pubspecs(root)) {
+  for (final pubspec in pubspecs) {
     for (final section in const <String>['dependencies', 'dev_dependencies']) {
       final deps = pubspec[section];
       if (deps is! YamlMap) continue;
@@ -71,23 +76,56 @@ String overridesYaml(Map<String, String> paths) {
   return buffer.toString();
 }
 
-/// `kit link --kit <dir>[<path-separator><dir>...] [--kit <dir>]... [--root <repo>]`,
-/// `kit unlink [--root <repo>]`. `--kit` is a list in the platform's PATH form (`;` on Windows, `:`
-/// elsewhere) or repeated; a relative directory is taken from the repository root.
+/// A directory that gets its own overrides file: [dir] relative to the root (`.` for the root), and
+/// the pubspecs whose dependencies it resolves.
+typedef _Target = ({String dir, List<YamlMap> pubspecs});
+
+List<_Target> _targets(String root) {
+  final pubspec = yamlMap('$root/pubspec.yaml');
+  if (pubspec == null) throw UsageException('no readable pubspec.yaml under $root');
+  return <_Target>[
+    (
+      dir: '.',
+      pubspecs: <YamlMap>[
+        pubspec,
+        for (final member in workspaceMembers(root, pubspec))
+          if (yamlMap('$root/$member/pubspec.yaml') case final YamlMap memberPubspec) memberPubspec,
+      ],
+    ),
+    for (final dir in parseConfig(pubspec['dev_tool']).extras)
+      if (yamlMap('$root/$dir/pubspec.yaml') case final YamlMap extraPubspec)
+        (dir: dir, pubspecs: <YamlMap>[extraPubspec]),
+  ];
+}
+
+const String _synopsis = 'kit link --kit <dir>[<path-separator><dir>...] [--kit <dir>]... [--root <dir>] | kit unlink';
+
+/// `kit link --kit <dir>... [--root <repo>]`, `kit unlink [--root <repo>]`. `--kit` is a list in the
+/// platform's PATH form (`;` on Windows, `:` elsewhere) or repeated; a relative directory is taken
+/// from the repository root and written as given, rebased for an extra's own file.
 int runKit(List<String> args) {
-  rejectUnknownOptions(args, const <String>{'root', 'kit'});
-  final root = rootOf(args);
-  final command = withoutOptions(args, const <String>{'root', 'kit'}).where((a) => !a.startsWith('--')).firstOrNull;
-  final file = File('$root/$kOverrides');
-  switch (command) {
+  final parser = commandParser()
+    ..addMultiOption(
+      'kit',
+      valueHelp: 'dir',
+      splitCommas: false,
+      help: 'A directory holding kit checkouts (KIT in .env); a PATH-style list or repeated.',
+    );
+  final results = parseArgs(parser, args, _synopsis, minRest: 1, maxRest: 1);
+  final root = rootOf(results);
+  final targets = _targets(root);
+  switch (results.rest.single) {
     case 'unlink':
-      if (file.existsSync()) file.deleteSync();
+      for (final target in targets) {
+        final file = File('$root/${target.dir}/$kOverrides');
+        if (file.existsSync()) file.deleteSync();
+      }
       stdout.writeln('$kOverrides removed; run `pub get` to resolve the pinned versions again.');
       return 0;
 
     case 'link':
       final kits = <String>[
-        for (final value in options(args, 'kit'))
+        for (final value in results.multiOption('kit'))
           ...value.split(Platform.isWindows ? ';' : ':').where((part) => part.trim().isNotEmpty),
       ];
       if (kits.isEmpty) {
@@ -97,43 +135,45 @@ int runKit(List<String> args) {
         for (final kit in kits)
           if (File(kit).isAbsolute) kit else '$root/$kit',
       ];
-      final linked = <String, String>{};
-      for (final dependency in kitDependencies(root)) {
-        final at = localCheckout(dependency, resolved);
-        if (at != null) linked[dependency.name] = '${kits[at.kit]}/${at.tail}'.replaceAll(r'\', '/');
+      var linkedAny = false;
+      for (final target in targets) {
+        final depth = target.dir == '.' ? 0 : target.dir.split('/').length;
+        final linked = <String, String>{};
+        for (final dependency in kitDependencies(target.pubspecs)) {
+          final at = localCheckout(dependency, resolved);
+          if (at == null) continue;
+          final kit = kits[at.kit];
+          linked[dependency.name] = '${File(kit).isAbsolute ? kit : '${'../' * depth}$kit'}/${at.tail}'.replaceAll(
+            r'\',
+            '/',
+          );
+        }
+        if (linked.isEmpty) continue;
+        linkedAny = true;
+        _warnHiddenOverrides(target, linked);
+        final name = target.dir == '.' ? kOverrides : '${target.dir}/$kOverrides';
+        File('$root/$name').writeAsStringSync(overridesYaml(linked));
+        stdout.writeln('$name -> ${linked.length} package(s): ${linked.keys.join(', ')}');
       }
-      if (linked.isEmpty) {
+      if (!linkedAny) {
         stderr.writeln('No dependency of this repository is checked out under ${kits.join(', ')}.');
         return 1;
       }
-      // pub reads only this file once it exists: overrides committed in pubspec.yaml stop applying.
-      final committed = yamlMap('$root/pubspec.yaml')?['dependency_overrides'];
-      if (committed is YamlMap) {
-        final hidden = committed.keys.cast<String>().where((name) => !linked.containsKey(name)).toList();
-        if (hidden.isNotEmpty) {
-          stderr.writeln(
-            'pubspec.yaml carries dependency_overrides for ${hidden.join(', ')}; pub ignores them while $kOverrides exists.',
-          );
-        }
-      }
-      file.writeAsStringSync(overridesYaml(linked));
-      stdout.writeln('$kOverrides -> ${linked.length} package(s): ${linked.keys.join(', ')}');
       return 0;
 
     default:
-      throw const UsageException('usage: kit link --kit <dir> [--root <repo>] | kit unlink [--root <repo>]');
+      throw UsageException('unknown command "${results.rest.single}"\n\nusage: $_synopsis');
   }
 }
 
-/// The root pubspec and every workspace member's, parsed.
-List<YamlMap> _pubspecs(String root) {
-  final rootPubspec = yamlMap('$root/pubspec.yaml');
-  if (rootPubspec == null) throw UsageException('no pubspec.yaml under $root');
-  final members = rootPubspec['workspace'];
-  return <YamlMap>[
-    rootPubspec,
-    if (members is YamlList)
-      for (final member in members)
-        if (yamlMap('$root/$member/pubspec.yaml') case final YamlMap pubspec) pubspec,
-  ];
+/// pub reads only the overrides file once it exists: overrides committed in the pubspec stop applying.
+void _warnHiddenOverrides(_Target target, Map<String, String> linked) {
+  final committed = target.pubspecs.first['dependency_overrides'];
+  if (committed is! YamlMap) return;
+  final hidden = committed.keys.cast<String>().where((name) => !linked.containsKey(name)).toList();
+  if (hidden.isEmpty) return;
+  final where = target.dir == '.' ? 'pubspec.yaml' : '${target.dir}/pubspec.yaml';
+  stderr.writeln(
+    '$where carries dependency_overrides for ${hidden.join(', ')}; pub ignores them while $kOverrides exists.',
+  );
 }

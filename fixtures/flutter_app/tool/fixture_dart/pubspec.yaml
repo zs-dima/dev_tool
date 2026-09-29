@@ -1,0 +1,9 @@
+name: fixture_dart
+description: A standalone Dart package the runner tests as a dev_tool.test.extra, resolved on its own.
+publish_to: none
+
+environment:
+  sdk: ^3.13.4
+
+dev_dependencies:
+  test: ^1.26.3

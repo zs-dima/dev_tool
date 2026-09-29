@@ -1,0 +1,285 @@
+name: Rust CI
+
+# The standard gate of a Cargo workspace. The flags are the repository's cargo aliases in
+# `.cargo/config.toml` (`lint`, `test-all`, `doc-check`, optionally `ui`), which its justfile and the
+# my-stack gate run too. This workflow never sets RUSTFLAGS: a global value replaces the
+# repository's `rustflags` and changes trybuild's expected output. Every job selects its toolchain
+# with a rustup override, which outranks a repository's rust-toolchain.toml, so "CI builds on
+# stable" holds. Jobs that need a service, another toolchain matrix or a regenerate-and-diff stay in
+# the caller.
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "The workspace root inside the repository."
+        type: string
+        default: "."
+      runs-on:
+        description: "Runner labels as JSON."
+        type: string
+        default: '["ubuntu-latest"]'
+      timeout-minutes:
+        type: number
+        default: 30
+      toolchain:
+        description: "The toolchain of fmt, lint, test, doc and semver."
+        type: string
+        default: stable
+      apt-packages:
+        description: "System packages every compiling job installs (e.g. `protobuf-compiler`), space-separated."
+        type: string
+        default: ""
+      test:
+        description: "Run `cargo test-all`; a caller whose tests need a service runs them in its own job."
+        type: boolean
+        default: true
+      extra-aliases:
+        description: "More cargo aliases to run after the tests (feature sets, `bench --no-run`), space-separated."
+        type: string
+        default: ""
+      msrv:
+        description: "Run `cargo test-all` on the workspace's `rust-version`."
+        type: boolean
+        default: true
+      doc:
+        description: "Run `cargo doc-check` with rustdoc warnings denied."
+        type: boolean
+        default: true
+      deny:
+        description: "Run `cargo deny check` (needs deny.toml)."
+        type: boolean
+        default: true
+      semver-packages:
+        description: "Published crates to check against their latest crates.io release, space-separated."
+        type: string
+        default: ""
+      ui:
+        description: "Run the `ui` alias (trybuild) on the workspace's rust-version."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # renovate: datasource=crate depName=cargo-deny
+  CARGO_DENY_VERSION: 0.20.2
+  # renovate: datasource=crate depName=cargo-semver-checks
+  SEMVER_CHECKS_VERSION: 0.50.0
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        uses: $/.github/actions/rust-toolchain
+        with:
+          toolchain: ${{ inputs.toolchain }}
+          components: rustfmt
+          cache: "false"
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+  lint:
+    name: lint
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        uses: $/.github/actions/rust-toolchain
+        with:
+          toolchain: ${{ inputs.toolchain }}
+          components: clippy
+          apt-packages: ${{ inputs.apt-packages }}
+          working-directory: ${{ inputs.working-directory }}
+      - name: cargo lint
+        run: cargo lint
+
+  test:
+    name: test
+    if: ${{ inputs.test || inputs.extra-aliases != '' }}
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        uses: $/.github/actions/rust-toolchain
+        with:
+          toolchain: ${{ inputs.toolchain }}
+          apt-packages: ${{ inputs.apt-packages }}
+          working-directory: ${{ inputs.working-directory }}
+      - name: cargo test-all
+        if: ${{ inputs.test }}
+        run: cargo test-all
+      - name: More aliases
+        if: ${{ inputs.extra-aliases != '' }}
+        env:
+          ALIASES: ${{ inputs.extra-aliases }}
+        run: |
+          for ALIAS in $ALIASES; do
+            echo "::group::cargo $ALIAS"
+            cargo "$ALIAS"
+            echo "::endgroup::"
+          done
+
+  # The oldest toolchain every crate promises to build on.
+  msrv:
+    name: msrv
+    if: ${{ inputs.msrv }}
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        uses: $/.github/actions/rust-toolchain
+        with:
+          toolchain: msrv
+          apt-packages: ${{ inputs.apt-packages }}
+          working-directory: ${{ inputs.working-directory }}
+      - name: cargo test-all
+        run: cargo test-all
+
+  doc:
+    name: doc
+    if: ${{ inputs.doc }}
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      # RUSTFLAGS never reaches rustdoc; this is its own switch.
+      RUSTDOCFLAGS: -Dwarnings
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        uses: $/.github/actions/rust-toolchain
+        with:
+          toolchain: ${{ inputs.toolchain }}
+          apt-packages: ${{ inputs.apt-packages }}
+          working-directory: ${{ inputs.working-directory }}
+      - name: cargo doc-check
+        run: cargo doc-check
+
+  deny:
+    name: deny
+    if: ${{ inputs.deny }}
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        uses: $/.github/actions/rust-toolchain
+        with:
+          toolchain: ${{ inputs.toolchain }}
+          cache: "false"
+      - name: cargo-deny
+        uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: cargo-deny@${{ env.CARGO_DENY_VERSION }}
+      - name: cargo deny
+        run: cargo deny check
+
+  # Against each crate's latest crates.io release. A crate not yet clean is left out of the list
+  # rather than checked without failing: an advisory check is a check nobody reads.
+  semver:
+    name: semver
+    if: ${{ inputs.semver-packages != '' }}
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        uses: $/.github/actions/rust-toolchain
+        with:
+          toolchain: ${{ inputs.toolchain }}
+          apt-packages: ${{ inputs.apt-packages }}
+          working-directory: ${{ inputs.working-directory }}
+      - name: cargo-semver-checks
+        uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: cargo-semver-checks@${{ env.SEMVER_CHECKS_VERSION }}
+      - name: cargo semver-checks
+        env:
+          PACKAGES: ${{ inputs.semver-packages }}
+        run: |
+          for PACKAGE in $PACKAGES; do
+            echo "::group::$PACKAGE"
+            cargo semver-checks --package "$PACKAGE"
+            echo "::endgroup::"
+          done
+
+  # trybuild's expected compiler output belongs to one toolchain: the workspace's rust-version.
+  ui:
+    name: ui
+    if: ${{ inputs.ui }}
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        uses: $/.github/actions/rust-toolchain
+        with:
+          toolchain: msrv
+          apt-packages: ${{ inputs.apt-packages }}
+          working-directory: ${{ inputs.working-directory }}
+      - name: cargo ui
+        run: cargo ui

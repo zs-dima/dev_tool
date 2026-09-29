@@ -46,12 +46,12 @@ String? _whatsNew(String root, String locale) {
 
 /// `release_notes [version] [--root <dir>] [--out <dir>]`; `--out` defaults to `<root>/build`.
 int runReleaseNotes(List<String> args) {
-  rejectUnknownOptions(args, const <String>{'root', 'out'});
-  final root = rootOf(args);
-  final out = option(args, 'out') ?? '$root/build';
-  final positional = withoutOptions(args, const <String>{'root', 'out'}).where((a) => !a.startsWith('--')).toList();
-  if (positional.length > 1) throw const UsageException('usage: release_notes [version] [--root <dir>] [--out <dir>]');
-  final version = positional.isEmpty ? null : positional.single.replaceFirst(RegExp('^v'), '');
+  final parser = commandParser()
+    ..addOption('out', valueHelp: 'dir', help: 'Where the notes go (default: <root>/build).');
+  final results = parseArgs(parser, args, 'release_notes [version] [--root <dir>] [--out <dir>]', maxRest: 1);
+  final root = rootOf(results);
+  final out = results.option('out') ?? '$root/build';
+  final version = results.rest.isEmpty ? null : results.rest.single.replaceFirst(RegExp('^v'), '');
 
   final changelog = File('$root/CHANGELOG.md');
   if (!changelog.existsSync()) throw UsageException('CHANGELOG.md not found under $root');

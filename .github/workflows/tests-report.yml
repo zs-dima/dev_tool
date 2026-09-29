@@ -10,12 +10,25 @@ permissions:
   contents: read
 
 jobs:
-  report:
+  package:
+    name: Package
     permissions:
       contents: read
-      actions: read
-      checks: write
+      actions: read # downloads the finished run's artifact
+      checks: write # publishes the report as a check run
     uses: $/.github/workflows/test-report.yml
     with:
       reporter: dart-json
-      path: "**/tests.json"
+      name: Tests
+
+  fixture:
+    name: Fixture
+    permissions:
+      contents: read
+      actions: read # downloads the finished run's artifact
+      checks: write # publishes the report as a check run
+    uses: $/.github/workflows/test-report.yml
+    with:
+      artifact: fixture-flutter-results
+      reporter: flutter-json
+      name: Fixture tests

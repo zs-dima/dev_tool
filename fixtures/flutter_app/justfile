@@ -1,0 +1,26 @@
+# The fixture consumer of dev_tool's Flutter workflows; its recipes stand for a repository's own.
+# Needs `sh` on PATH (Windows: Git for Windows' `Git\bin`).
+
+default:
+    @just --list
+
+# What flutter-gate.yml runs after codegen, in its order.
+check: format-check analyze gate-extra test
+
+# Hand-written Dart only: generated `*.*.dart` stays as its generator emits it.
+format-check:
+    git ls-files -z -- '*.dart' ':(exclude,glob)**/*.*.dart' | xargs -0 -r dart format --output=none --set-exit-if-changed
+
+analyze:
+    flutter analyze
+
+# The codegen CI runs (`codegen: committed`) and compares with the committed files.
+gen:
+    dart run build_runner build --workspace
+
+# The repository's own checks (`extra-checks: gate-extra`): here the browser tests.
+gate-extra:
+    flutter test --platform chrome test/web
+
+test *args:
+    dart run dev_tool:test_workspace {{ args }}

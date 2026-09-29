@@ -11,40 +11,58 @@ changed against a repository's copy:
 git diff --no-index path/to/repo/justfile path/to/dev_tool/templates/flutter-app/justfile
 ```
 
+## The recipes the workflows run
+
+A workflow runs a recipe by the name its input gives; the defaults are these, and a repository
+renames one by passing the input.
+
+| Recipe | Input | Run by | Does |
+|---|---|---|---|
+| `gen` | `codegen-recipe` | the gate with `codegen: committed` or `ignored` | the code generators: `dart run build_runner build --workspace`, then any generator outside build_runner at a pinned version |
+| `gate-extra` | `extra-checks` | the gate, after analyze and before the tests | the repository's own checks |
+| `build-appbundle` | `build-recipe` | `flutter-release-android.yml` | the signed AAB, from BUILD_NAME and BUILD_NUMBER |
+| `build-ios-config` | `build-recipe` | `flutter-release-ios.yml` | `flutter build ios --config-only`, from BUILD_NAME and BUILD_NUMBER; xcodebuild archives |
+
+`just check` runs what the gate runs after codegen, so a local green is CI's green.
+
 ## flutter-app
 
-A Flutter app of the line (a pub workspace with `tool/newapp/app.json`).
+A Flutter app, a pub workspace or a single package.
 
 | File | Note |
 |---|---|
-| `justfile` | The former make targets as recipes (`stats` and `dependencies` dropped, `doctor` is `flutter-doctor`); per-developer paths (`KIT`, `DESIGN`, `DEVICE`, `DATA`) come from a gitignored `.env`. The app's own recipes go at the end. |
+| `justfile` | The recipes above plus the everyday ones; per-developer settings (`KIT`, `DEVICE`) come from a gitignored `.env`. The app's own recipes go at the end. |
 | `mise.toml` | `just` only: the Flutter version is the pubspec's `flutter: ">=X"` bound, which CI derives. |
-| `.github/workflows/*.yml` | Callers of the reusable gate, releases and test report. Keep the file names and the name "Code Analysis": the release probe and the test report key on them. Per-app checks and runner labels (hosted by default; `runs-on`, `mac-runs-on` for self-hosted) are the `with:` inputs. |
-| `.github/dependabot.yml` | Root only (a pub workspace has one lock). |
-| `build.yaml` | The app's builders. `pubspec_generator` is not among them: as a dependency it breaks the app's resolution, so `just gen-ci` and CI run it as a global tool at its latest version. |
-| `config/keys.env.example` | Copied to the gitignored `config/keys.env`; `just check-keys` allows only `app.json` `keys`. |
+| `renovate.json` | Extends `github>zs-dima/dev_tool`. |
+| `.github/workflows/*.yml` | Callers of the gate, the releases and the test report. Keep the file name `code-analysis.yml` and the name "Code Analysis": the release probe and the test report key on them. Runner labels (hosted by default; `runs-on`, `mac-runs-on` for self-hosted) and DCM are inputs. |
+| `build.yaml` | Builder options shared by the app's packages. |
+| `config/keys.env.example` | Copied to the gitignored `config/keys.env`; `just check-keys` allows only `dev_tool.keys`. CI writes the file from the `KEYS_ENV` secret, composed in the caller from the repository's secrets. |
 | `.editorconfig`, `.gitattributes`, `.gitignore` | LF everywhere, generated Dart collapsed in reviews, secrets never committed. |
 
-Also in the app: `dev_tool` as a dev dependency (see the package README), and in
-`tool/newapp/app.json` the release clock when the app's Play history already holds numbers above the
-line clock:
+Also in the app: `dev_tool` as a dev dependency (see the package README), `config/production.env`
+and `config/development.env` for the defines, and the `dev_tool:` block:
 
-```json
-"release": { "android": { "versionCodeBase": 1788816828, "versionCodeT0": 1788869018 } },
-"keys": ["SENTRY_DSN"]
+```yaml
+dev_tool:
+  release:
+    size_budget_mb: 90
+    android: { build_number_base: 1788816828, build_number_t0: 1788869018 }  # a store history above the default clock
+  keys: [SENTRY_DSN]
 ```
 
 ## dart-package
 
-A Dart or Flutter package (`TOOL := 'flutter'` in the `justfile` and `flutter-package.yml` in CI for
-the latter). `deploy.yml` only for a package published to pub.dev; `.pubignore` keeps the tooling out
-of the archive; `dart_test.yaml` writes the JSON report CI's verdict reads.
+A Dart package (`TOOL := 'flutter'` in the `justfile` and `flutter-gate.yml` in CI for one that needs
+the Flutter SDK). `deploy.yml` only for a package published to pub.dev; `.pubignore` keeps the tooling
+out of the archive.
 
 ## rust
 
 A Cargo workspace. The gate's flags are cargo aliases in `.cargo/config.toml` (`cargo lint`,
-`cargo test-all`, `cargo doc-check`), so `just`, CI and `my-stack check` run one definition. MSRV is
-`rust-version` in `Cargo.toml`, read by CI. Lints belong in the workspace manifest:
+`cargo test-all`, `cargo doc-check`, and `cargo ui` for trybuild), so `just`, CI and `my-stack check`
+run one definition. MSRV is `rust-version` in `Cargo.toml`, read by CI. `release.toml` makes
+cargo-release bump, commit and push; `just release` tags once CI passed, and `publish.yml` (a library
+only) publishes the tag through crates.io's trusted publishing. Lints belong in the workspace manifest:
 
 ```toml
 [workspace.lints.rust]
@@ -62,6 +80,5 @@ pedantic = { level = "warn", priority = -1 }
 - `mise install` once per repository; on a machine whose mise config does not trust the folder,
   `mise trust` once.
 - For an agent: `Bash(just *)` and `Bash(dart run dev_tool:*)` in `.claude/settings.json`, and a
-  `deny` for the recipes that write to a live service or skip a confirmation (`l10n-seed`,
-  `l10n-translate`, `screenshots-upload`, `new-app`, `just --yes`). `release` refuses without a
-  terminal, so an agent cannot run it even with `just --yes`.
+  `deny` for the recipes that write to a live service or skip a confirmation (`just --yes`).
+  `release` refuses without a terminal, so an agent cannot run it even with `just --yes`.

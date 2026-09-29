@@ -1,4 +1,4 @@
-# dev_tool templates/flutter-app/.gitignore @1.0.0
+# dev_tool templates/flutter-app/.gitignore @2.0.0
 build/
 .dart_tool/
 .flutter-plugins
@@ -25,6 +25,7 @@ linux/flutter/ephemeral/
 # Per-developer paths for the justfile; every env file except the two committed ones.
 .env
 .env.*
+!.env.example
 config/*.env
 !config/development.env
 !config/production.env

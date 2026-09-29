@@ -1,12 +1,12 @@
-# dev_tool templates/dart-package/.github/workflows/ci.yml @1.0.0
+# dev_tool templates/dart-package/.github/workflows/ci.yml @2.0.0
 name: CI
 
 on:
   push:
     branches: [main]
-    paths: [".github/workflows/**", "bin/**", "lib/**", "test/**", "example/**", "pubspec.yaml", "analysis_options.yaml", "dart_test.yaml", "CHANGELOG.md", "README.md", "LICENSE", ".pubignore"]
+    paths: [".github/workflows/**", "bin/**", "lib/**", "test/**", "example/**", "pubspec.yaml", "analysis_options.yaml", "justfile", "mise.toml", "CHANGELOG.md", "README.md", "LICENSE", ".pubignore"]
   pull_request:
-    paths: [".github/workflows/**", "bin/**", "lib/**", "test/**", "example/**", "pubspec.yaml", "analysis_options.yaml", "dart_test.yaml", "CHANGELOG.md", "README.md", "LICENSE", ".pubignore"]
+    paths: [".github/workflows/**", "bin/**", "lib/**", "test/**", "example/**", "pubspec.yaml", "analysis_options.yaml", "justfile", "mise.toml", "CHANGELOG.md", "README.md", "LICENSE", ".pubignore"]
   workflow_dispatch:
 
 concurrency:
@@ -17,8 +17,8 @@ permissions:
   contents: read
 
 jobs:
-  ci:
-    # A package that needs Flutter calls flutter-package.yml instead.
-    uses: zs-dima/dev_tool/.github/workflows/dart-package.yml@v1
+  gate:
+    # A package that needs Flutter calls flutter-gate.yml (with example-directory for its example app).
+    uses: zs-dima/dev_tool/.github/workflows/dart-gate.yml@v2
     with:
-      publish-check: true # false for a private package
+      publish-check: true # false for a package that is not published

@@ -1,0 +1,197 @@
+name: Flutter gate
+
+# The push and pull-request gate of anything that needs the Flutter SDK: an app, a Flutter package,
+# a package with an example app. What a repository tunes is inputs; its own checks and its codegen are
+# recipes of its justfile, which this workflow runs by name, so the local recipe and CI are one
+# definition.
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "The package root inside the repository."
+        type: string
+        default: "."
+      runs-on:
+        description: "Runner labels as JSON. A self-hosted runner: '[\"self-hosted\",\"Linux\"]' (never bare self-hosted, which also matches a macOS runner)."
+        type: string
+        default: '["ubuntu-latest"]'
+      timeout-minutes:
+        type: number
+        default: 60
+      flutter-version:
+        description: "Exact Flutter version; empty derives it from the pubspec's `flutter:` constraint."
+        type: string
+        default: ""
+      codegen:
+        description: "`none`; `committed`: run the codegen recipe and require its output to equal the committed files; `ignored`: run it, the output is gitignored."
+        type: string
+        default: none
+      codegen-recipe:
+        description: "The just recipe that regenerates code."
+        type: string
+        default: gen
+      format-exclude:
+        description: "An extended regex of tracked Dart paths the format check skips, on top of generated `*.*.dart`."
+        type: string
+        default: ""
+      extra-checks:
+        description: "A just recipe with the repository's own checks, run after analyze and before the tests."
+        type: string
+        default: ""
+      dcm:
+        description: "Run DCM with the DCM_CI_KEY and DCM_EMAIL secrets."
+        type: boolean
+        default: false
+      dcm-args:
+        description: "Arguments of `dcm analyze .`."
+        type: string
+        default: "--no-fatal-warnings --no-fatal-style"
+      example-directory:
+        description: "An example app inside working-directory to analyze and build; empty skips the example job."
+        type: string
+        default: ""
+      example-builds:
+        description: "`flutter build` targets for the example, one per line, with their flags (e.g. `web --release`)."
+        type: string
+        default: "web --release"
+      publish-check:
+        description: "Run the pub.dev publish check (dry run, no secret or build output in the published set, CHANGELOG names the version)."
+        type: boolean
+        default: false
+      codecov:
+        description: "Upload every coverage/lcov.info to Codecov (CODECOV_TOKEN); a failed upload never fails the gate."
+        type: boolean
+        default: false
+      artifact-name:
+        description: "Name of the uploaded reports artifact, which the test report reads."
+        type: string
+        default: test-results
+    secrets:
+      DCM_CI_KEY:
+        required: false
+      DCM_EMAIL:
+        required: false
+      CODECOV_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Format · Analyze · Test
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup just
+        if: ${{ inputs.codegen != 'none' || inputs.extra-checks != '' }}
+        uses: $/.github/actions/setup-just
+        with:
+          working-directory: ${{ inputs.working-directory }}
+
+      - name: Setup Flutter
+        uses: $/.github/actions/setup-flutter
+        with:
+          flutter-version: ${{ inputs.flutter-version }}
+          working-directory: ${{ inputs.working-directory }}
+          codegen-recipe: ${{ inputs.codegen != 'none' && inputs.codegen-recipe || '' }}
+
+      - name: Formatting
+        uses: $/.github/actions/format-check
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          exclude: ${{ inputs.format-exclude }}
+
+      - name: Gate
+        uses: $/.github/actions/gate-checks
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          codegen: ${{ inputs.codegen }}
+          codegen-recipe: ${{ inputs.codegen-recipe }}
+          extra-checks: ${{ inputs.extra-checks }}
+          dcm: ${{ inputs.dcm }}
+          dcm-args: ${{ inputs.dcm-args }}
+          dcm-key: ${{ secrets.DCM_CI_KEY }}
+          dcm-email: ${{ secrets.DCM_EMAIL }}
+
+      - name: Coverage summary
+        if: ${{ !cancelled() }}
+        run: |
+          if grep -q '"name": *"dev_tool"' .dart_tool/package_config.json 2>/dev/null; then
+            dart run dev_tool:coverage_summary --summary "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload coverage
+        if: ${{ inputs.codecov && !cancelled() && github.actor != 'dependabot[bot]' }}
+        continue-on-error: true
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          working-directory: ${{ inputs.working-directory }}
+          fail_ci_if_error: false
+
+      # Read by test-report.yml; a full storage quota must not turn the gate red.
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.working-directory }}/reports/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Publish check
+        if: ${{ inputs.publish-check }}
+        uses: $/.github/actions/publish-check
+        with:
+          tool: flutter
+          working-directory: ${{ inputs.working-directory }}
+
+  # The example's tests belong to the gate job: list the example under `dev_tool.test.extra`.
+  example:
+    name: Example
+    if: ${{ inputs.example-directory != '' }}
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}/${{ inputs.example-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Flutter
+        uses: $/.github/actions/setup-flutter
+        with:
+          flutter-version: ${{ inputs.flutter-version }}
+          working-directory: ${{ inputs.working-directory }}/${{ inputs.example-directory }}
+          version-from: ${{ inputs.working-directory }}
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Build
+        env:
+          BUILDS: ${{ inputs.example-builds }}
+        run: |
+          set -f
+          while IFS= read -r TARGET; do
+            [ -n "$TARGET" ] || continue
+            echo "::group::flutter build $TARGET"
+            # shellcheck disable=SC2086 # a target and its flags are words; split, never evaluated
+            flutter build $TARGET
+            echo "::endgroup::"
+          done <<< "$BUILDS"

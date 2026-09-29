@@ -1,3 +1,0 @@
-# The JSON report the CI verdict step reads (`reports/tests.json`).
-file_reporters:
-  json: reports/tests.json

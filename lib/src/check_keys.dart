@@ -1,16 +1,14 @@
-/// Refuses a build whose `config/keys.env` carries a key the app does not allow.
+/// Refuses a build whose keys file carries a key the repository does not allow.
 ///
-/// Everything in `keys.env` is compiled into the binary by `--dart-define-from-file`; four apps still
-/// carried an `AI_KEY` line on 2026-09-27. The allowlist is `keys` in `tool/newapp/app.json`,
-/// `["SENTRY_DSN"]` when absent.
+/// Everything in the file is compiled into the binary by `--dart-define-from-file`; four apps still
+/// carried an `AI_KEY` line on 2026-09-27. The allowlist is `dev_tool.keys` in `pubspec.yaml`, and
+/// with none no key passes: a guard for secrets fails closed.
 library;
 
 import 'dart:io';
 
 import 'package:dev_tool/src/cli.dart';
-
-/// The keys an app may compile in when its `app.json` names none.
-const List<String> kDefaultKeys = <String>['SENTRY_DSN'];
+import 'package:dev_tool/src/config.dart';
 
 /// The keys defined in [envFile] that [allowed] does not name, in file order.
 List<String> disallowedKeys(String envFile, List<String> allowed) {
@@ -24,35 +22,26 @@ List<String> disallowedKeys(String envFile, List<String> allowed) {
   return keys;
 }
 
-/// The allowlist from the app's identity file.
-List<String> allowedKeys(Map<String, Object?> app) {
-  final keys = app['keys'];
-  if (keys == null) return kDefaultKeys;
-  if (keys is! List<Object?> || keys.any((key) => key is! String)) {
-    throw const UsageException('$kAppJson: `keys` must be a list of environment variable names');
-  }
-  return keys.cast<String>();
-}
-
-/// `check_keys [--root <dir>]`: exit 0 when `config/keys.env` holds only allowed keys.
+/// `check_keys [--root <dir>] [--file <path>]`: exit 0 when the keys file holds only allowed keys.
 int runCheckKeys(List<String> args) {
-  rejectUnknownOptions(args, const <String>{'root'});
-  final root = rootOf(args);
-  final file = File('$root/config/keys.env');
+  final parser = commandParser()
+    ..addOption('file', valueHelp: 'path', defaultsTo: 'config/keys.env', help: 'The keys file, relative to the root.');
+  final results = parseArgs(parser, args, 'check_keys [--root <dir>] [--file <path>]');
+  final root = rootOf(results);
+  final name = results.option('file')!;
+  final file = File(File(name).isAbsolute ? name : '$root/$name');
   if (!file.existsSync()) {
-    stderr.writeln(
-      'config/keys.env is missing. Copy config/keys.env.example to config/keys.env and fill it in '
-      '(it is gitignored; CI writes its own from secrets).',
-    );
+    final copy = File('${file.path}.example').existsSync() ? ' Copy $name.example to $name and fill it in.' : '';
+    stderr.writeln('$name is missing.$copy It is gitignored; CI writes its own from the KEYS_ENV secret.');
     return 1;
   }
-  final allowed = allowedKeys(readAppJson(root));
+  final allowed = loadConfig(root).keys;
   final extra = disallowedKeys(file.readAsStringSync(), allowed);
   if (extra.isEmpty) return 0;
   stderr.writeln(
-    'config/keys.env carries ${extra.join(', ')}, which $kAppJson `keys` does not allow '
-    '(allowed: ${allowed.join(', ')}). Everything in that file is compiled into the app: remove the '
-    'key, or add it to `keys` if shipping it is intended.',
+    '$name carries ${extra.join(', ')}, which dev_tool.keys in pubspec.yaml does not allow '
+    '(allowed: ${allowed.isEmpty ? 'none' : allowed.join(', ')}). Everything in that file is compiled '
+    'into the app: remove the key, or add it to dev_tool.keys if shipping it is intended.',
   );
   return 1;
 }

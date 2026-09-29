@@ -1,6 +1,6 @@
-# dev_tool templates/rust/.github/workflows/ci.yml @1.0.0
-# Copied once, then this repository's own: services, matrices and repository-specific jobs go below
-# the standard ones. The flags are the cargo aliases, so this file and `just check` agree.
+# dev_tool templates/rust/.github/workflows/ci.yml @2.0.0
+# The standard gate is dev_tool's rust-ci.yml over this repository's cargo aliases. A job that needs
+# a service, another toolchain or a regenerate-and-diff goes below it as this repository's own.
 name: CI
 
 on:
@@ -16,74 +16,29 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  fmt:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup toolchain install stable --profile minimal --component rustfmt
-      - run: cargo fmt --all --check
+  gate:
+    uses: zs-dima/dev_tool/.github/workflows/rust-ci.yml@v2
+    # with:
+    #   apt-packages: protobuf-compiler   # a build script that runs protoc
+    #   semver-packages: my-crate         # a published library, against its latest release
+    #   ui: true                          # trybuild tests behind the `ui` alias
 
-  lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup toolchain install stable --profile minimal --component clippy
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: cargo lint
-
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: cargo test-all
-
-  msrv:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: |
-          MSRV=$(cargo metadata --no-deps --format-version 1 | jq -r '[.packages[].rust_version // empty][0]')
-          [ -n "$MSRV" ] || { echo "::error::no rust-version in Cargo.toml"; exit 1; }
-          rustup toolchain install "$MSRV" --profile minimal
-          cargo +"$MSRV" test-all
-
-  doc:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      RUSTDOCFLAGS: -Dwarnings
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: cargo doc-check
-
-  deny:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+  # A repository job, for example tests against a database:
+  # db:
+  #   name: db
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 30
+  #   services:
+  #     postgres:
+  #       image: postgres:18
+  #       env:
+  #         POSTGRES_PASSWORD: postgres
+  #       ports: ["5432:5432"]
+  #   env:
+  #     DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+  #   steps:
+  #     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+  #       with:
+  #         persist-credentials: false
+  #     - run: cargo test --test wire

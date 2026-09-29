@@ -1,15 +1,20 @@
 name: Test report
 
-# Renders a finished run's `test-results` artifact as a check. The caller is a `workflow_run`
-# workflow, so the report can write checks for Dependabot and fork pull requests too.
+# Renders a finished run's reports artifact as a check. The caller is a `workflow_run` workflow, so
+# the report can write checks for Dependabot and fork pull requests too; nothing from the finished run
+# is checked out or executed, the reporter parses its JSON.
 on:
   workflow_call:
     inputs:
       runs-on:
         type: string
         default: '["ubuntu-latest"]'
+      artifact:
+        description: "The reports artifact's name, or a /regex/ matching several (a matrix's)."
+        type: string
+        default: test-results
       reporter:
-        description: "`flutter-json` for apps (per-package reports), `dart-json` for pure-Dart packages."
+        description: "`flutter-json` for Flutter packages, `dart-json` for pure-Dart ones."
         type: string
         default: flutter-json
       path:
@@ -23,19 +28,22 @@ on:
 
 permissions:
   contents: read
-  actions: read
-  checks: write
 
 jobs:
   report:
+    name: Report
     runs-on: ${{ fromJSON(inputs.runs-on) }}
     timeout-minutes: 5
     continue-on-error: true
+    permissions:
+      contents: read
+      actions: read # downloads the finished run's artifact
+      checks: write # publishes the report as a check run
     steps:
       - name: Publish test report
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         with:
-          artifact: test-results
+          artifact: ${{ inputs.artifact }}
           name: ${{ inputs.name }}
           path: ${{ inputs.path }}
           reporter: ${{ inputs.reporter }}

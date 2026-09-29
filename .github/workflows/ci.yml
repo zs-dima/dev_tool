@@ -1,7 +1,9 @@
 name: CI
 
-# This repository's gate: the package through `dart-package.yml`, the workflows through actionlint
-# and zizmor, and a fixture Flutter app through `flutter-app-gate.yml` and `flutter-package.yml`.
+# This repository's gate: the package through dart-gate.yml, the workflows and templates through
+# actions-lint.yml, and the fixtures through the workflows they prove: flutter-gate.yml on a pub
+# workspace with a member, a standalone extra, committed generated code, a browser test and an
+# example app; rust-ci.yml on a Cargo workspace.
 on:
   push:
     branches: [main]
@@ -17,35 +19,34 @@ permissions:
 
 jobs:
   package:
-    uses: $/.github/workflows/dart-package.yml
+    name: Package
+    uses: $/.github/workflows/dart-gate.yml
     with:
-      publish-check: false # publish_to: none
+      format-exclude: ^fixtures/
 
-  workflows:
-    name: Workflows
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
-        with:
-          install_args: actionlint zizmor shellcheck
-      - run: actionlint
-      - run: actionlint templates/*/.github/workflows/*.yml
-      - run: zizmor --persona=regular .github templates
+  actions-lint:
+    name: Actions lint
+    uses: $/.github/workflows/actions-lint.yml
+    with:
+      workflows: .github/workflows/*.yml templates/*/.github/workflows/*.yml
+      zizmor-paths: .github templates
+      persona: pedantic
 
-  fixture-app:
-    uses: $/.github/workflows/flutter-app-gate.yml
+  fixture-flutter:
+    name: Fixture · Flutter
+    uses: $/.github/workflows/flutter-gate.yml
     with:
       working-directory: fixtures/flutter_app
       timeout-minutes: 30
-      artifact-name: fixture-app-results
+      codegen: committed
+      extra-checks: gate-extra
+      example-directory: example
+      example-builds: web --release
+      artifact-name: fixture-flutter-results
 
-  fixture-package:
-    uses: $/.github/workflows/flutter-package.yml
+  fixture-rust:
+    name: Fixture · Rust
+    uses: $/.github/workflows/rust-ci.yml
     with:
-      working-directory: fixtures/flutter_app
-      publish-check: false
-      artifact-name: fixture-package-results
+      working-directory: fixtures/rust_workspace
+      extra-aliases: check-all

@@ -1,4 +1,0 @@
-# dev_tool templates/dart-package/dart_test.yaml @1.0.0
-# The JSON report CI's verdict step reads.
-file_reporters:
-  json: reports/tests.json

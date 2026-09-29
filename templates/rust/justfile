@@ -1,10 +1,12 @@
-# dev_tool templates/rust/justfile @1.0.0
+# dev_tool templates/rust/justfile @2.0.0
 # Copied once, then this repository's own. Needs `sh` on PATH (Windows: Git for Windows' `Git\bin`);
-# tools: `mise install`.
+# tools: `mise install`. The gate's flags are the cargo aliases in .cargo/config.toml, which CI's
+# rust-ci.yml and `my-stack check` run too.
 
 default:
     @just --list
 
+# What CI runs, less its MSRV job.
 [group('gate')]
 check: fmt-check lint test doc deny
 
@@ -12,7 +14,6 @@ check: fmt-check lint test doc deny
 fmt-check:
     cargo fmt --all --check
 
-# `cargo lint`, `cargo test-all` and `cargo doc-check` are aliases in .cargo/config.toml.
 [group('gate')]
 lint:
     cargo lint
@@ -21,6 +22,7 @@ lint:
 test *args:
     cargo test-all {{ args }}
 
+# rustdoc warnings denied, as CI runs it.
 [group('gate')]
 doc:
     RUSTDOCFLAGS=-Dwarnings cargo doc-check
@@ -58,21 +60,26 @@ upgrade:
     cargo update
 
 [group('deps')]
-tree:
-    cargo tree
-
-[group('deps')]
 tree-dup:
     cargo tree --duplicates
 
-[group('deps')]
-publish-dry:
-    cargo publish --workspace --dry-run
-
-# Operator only: cargo-release bumps, commits, tags vX.Y.Z and pushes.
+# Operator only: gate; cargo-release bumps every crate, commits and pushes (release.toml); then, once
+# CI has passed on that commit, tag vX.Y.Z, which a library's publish.yml publishes.
 [group('operator')]
 [script]
 release version:
     [ -t 0 ] || { echo "release is an operator command: run it from a terminal"; exit 2; }
     just check
     cargo release "{{ version }}" --execute
+    sha="$(git rev-parse HEAD)"
+    run=""
+    for _ in $(seq 1 30); do
+      run="$(gh run list --commit "$sha" --workflow ci.yml --json databaseId --jq '.[0].databaseId')"
+      [ -n "$run" ] && break
+      sleep 10
+    done
+    [ -n "$run" ] || { echo "no CI run for $sha within 5 minutes: tag it by hand once it is green"; exit 1; }
+    gh run watch "$run" --exit-status || { echo "CI failed on $sha: not tagged"; exit 1; }
+    git tag "v{{ version }}"
+    git push --quiet origin "v{{ version }}"
+    echo "pushed v{{ version }}"

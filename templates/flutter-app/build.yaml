@@ -1,18 +1,10 @@
-# dev_tool templates/flutter-app/build.yaml @1.0.0
+# dev_tool templates/flutter-app/build.yaml @2.0.0
+# Builder options shared by the app's packages; a builder that should see only part of the tree gets
+# `generate_for:` here (e.g. drift_dev for the database directory).
 targets:
   $default:
-    sources:
-      - $package$
-      - pubspec.yaml
-      - lib/**
-      - test/**
-      - assets/**
     builders:
       json_serializable:
         options:
           checked: true
           field_rename: snake
-      drift_dev:
-        generate_for:
-          include:
-            - lib/_core/database/**

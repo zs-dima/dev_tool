@@ -1,0 +1,8 @@
+# The gate's flags, defined once for `just`, CI and `my-stack check`. `-D warnings` stays in the
+# alias: a target-specific `rustflags` silently replaces `[build] rustflags`.
+[alias]
+lint = "clippy --workspace --all-targets --all-features -- -D warnings"
+test-all = "test --workspace --all-features"
+doc-check = "doc --workspace --no-deps --all-features"
+# An extra alias, run by rust-ci.yml's `extra-aliases`.
+check-all = "check --workspace --all-targets"

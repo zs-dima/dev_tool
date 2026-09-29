@@ -1,0 +1,26 @@
+name: "Setup just"
+description: "Install mise and the tools the repository's mise.toml pins, so the workflows can run its just recipes."
+
+# The workflows delegate codegen, repository checks and release builds to named `just` recipes; the
+# recipes need the tools the repository pins. Without a mise.toml, `just` alone at the version below.
+inputs:
+  working-directory:
+    description: "The directory whose mise.toml applies."
+    required: false
+    default: "."
+
+runs:
+  using: composite
+  steps:
+    - name: mise and the pinned tools
+      uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      with:
+        working_directory: ${{ inputs.working-directory }}
+
+    - name: just
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        # renovate: datasource=crate depName=just
+        command -v just >/dev/null 2>&1 || mise use --global just@1.58.0
+        just --version

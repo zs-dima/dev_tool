@@ -1,188 +1,85 @@
-# dev_tool templates/flutter-app/justfile @1.0.0
+# dev_tool templates/flutter-app/justfile @2.0.0
 # Copied once, then this repository's own. Needs `sh` on PATH (Windows: Git for Windows' `Git\bin`).
-# Per-developer paths (KIT, DESIGN, DEVICE, DATA) come from a gitignored `.env`.
+# The workflows run the recipes their inputs name: `gen` (codegen), `gate-extra` (extra-checks),
+# `build-appbundle` and `build-ios-config` (the releases). Per-developer settings (KIT, DEVICE) come
+# from a gitignored `.env`.
 
 set dotenv-load
 
 DEVICE := env('DEVICE', '')
 KIT := env('KIT', '')
-DESIGN := env('DESIGN', '')
-L10N_MODEL := env('L10N_MODEL', 'gpt-5.5')
-SHOTS_DIR := env('SHOTS_DIR', 'build/screenshots/' + file_name(justfile_directory()))
 DEFINES := '--dart-define-from-file=config/production.env --dart-define-from-file=config/keys.env'
 DEBUG_DEFINES := '--dart-define-from-file=config/development.env'
 SYMBOLS := '--obfuscate --split-debug-info=build/symbols'
 
+# CI sets BUILD_NUMBER and BUILD_NAME; locally the number is the app's clock and the name the pubspec's version.
+ANDROID_VERSION := '--build-number="${BUILD_NUMBER:-$(dart run dev_tool:build_number android)}" ${BUILD_NAME:+--build-name="$BUILD_NAME"}'
+IOS_VERSION := '--build-number="${BUILD_NUMBER:-$(dart run dev_tool:build_number ios)}" ${BUILD_NAME:+--build-name="$BUILD_NAME"}'
+
 default:
     @just --list
 
-# Every workspace package; `just test --only=ui` scopes.
+# What the gate runs after codegen, in its order.
 [group('gate')]
-test *args:
-    dart run dev_tool:test_workspace {{ args }}
+check: format-check analyze gate-extra test test-android
 
-[group('gate')]
-test-root:
-    flutter test --coverage test/
-
+# Hand-written Dart only: generated `*.*.dart` stays as its generator emits it.
 [group('gate')]
 format-check:
-    dart format --output=none --set-exit-if-changed .
+    git ls-files -z -- '*.dart' ':(exclude,glob)**/*.*.dart' | xargs -0 -r dart format --output=none --set-exit-if-changed
 
 [group('gate')]
 format:
-    dart format .
+    git ls-files -z -- '*.dart' ':(exclude,glob)**/*.*.dart' | xargs -0 -r dart format
 
 [group('gate')]
 analyze:
     flutter analyze
 
-# The app against its identity file and the sibling checkouts next to it.
+# This repository's own checks; CI runs them as `extra-checks: gate-extra`.
 [group('gate')]
-app-audit:
-    dart tool/newapp/audit.dart
+gate-extra:
+    @echo "no repository checks yet"
 
-# What CI sees: pinned kit, codegen, the diff, analyze, audit.
+# Every workspace package; `just test --only ui` scopes, `just test --no-coverage` is quicker.
 [group('gate')]
-ci-parity: kit-unlink gen-ci
-    git diff --exit-code --stat -- lib packages ':!**/*.lock'
-    flutter analyze
-    dart tool/newapp/audit.dart
+test *args:
+    dart run dev_tool:test_workspace {{ args }}
 
+# The Android unit tests, where the app has any: part of the gate, as in CI and `my-stack check`.
+[group('gate')]
+[script]
+test-android:
+    [ -d android/app/src/test ] || exit 0
+    [ -f android/gradlew ] || flutter build apk --config-only
+    ./android/gradlew -p android --console=plain --quiet :app:testDebugUnitTest
+
+# DCM with the arguments CI passes by default (`dcm: true` there).
 [group('gate')]
 dcm:
     dcm analyze . --no-fatal-warnings --no-fatal-style
 
-# Fatal locally (a gate); CI's copy of these three reports only.
-[group('gate')]
-dcm-unused:
-    dcm check-unused-code . --exclude-public-api --fatal-unused
-    dcm check-unused-files . --exclude-public-api --fatal-unused
-    dcm check-unused-l10n . --class-pattern "Localization$" --fatal-unused
+# The code generators; CI runs this (`codegen-recipe: gen`) and compares the result with the tree.
+# A generator outside build_runner goes below at a pinned version, with the Renovate annotation on
+# the line above it: `# renovate: datasource=dart depName=pubspec_generator`, then
+# `dart pub global activate pubspec_generator 5.0.2`.
+[group('gen')]
+gen:
+    dart run build_runner build --workspace
 
-# Report only; not in the gate until measured once.
-[group('gate')]
-dcm-public-code:
-    dcm check-unnecessarily-public-code . --exclude-public-api --no-fatal-found
+[group('gen')]
+gen-watch:
+    dart run build_runner watch --workspace
 
-[group('gate')]
-dcm-mutable-fields:
-    dcm check-unnecessarily-mutable-fields . --no-fatal-found
-
-# Rules DCM has that the config never named, and the metrics it applies (a broken block hid 21 of 22
-# thresholds until lints_tool 1.1.0).
-[group('gate')]
-drift:
-    dcm init lints-preview . --only-absent --no-empty-violations --rule-types=common,flutter,pub,intl
-    dcm init metrics-preview . --only-enabled
-
-[group('gate')]
-dcm-fix file:
-    dcm fix {{ file }}
-
-# DCM over the Dart files changed since `base`.
-[group('gate')]
-[script]
-dcm-diff base='HEAD':
-    files=$(git diff --name-only --diff-filter=d "{{ base }}" -- '*.dart' | grep -vE '\.(g|freezed|gen)\.dart$' || true)
-    if [ -z "$files" ]; then echo "no changed .dart files vs {{ base }}"; else dcm analyze $files; fi
+[group('gen')]
+gen-clean:
+    dart run build_runner clean --workspace
 
 [group('gen')]
 get:
     flutter pub get
 
-# CI's codegen, the same lines as dev_tool's setup-flutter action. pubspec_generator is a global
-# tool at its latest version, never a dependency.
-[group('gen')]
-gen-ci:
-    dart run build_runner build --delete-conflicting-outputs
-    dart pub global activate pubspec_generator
-    dart pub global run pubspec_generator:generate --input pubspec.yaml --output lib/_core/generated/constant/pubspec.yaml.g.dart --no-timestamp
-    dart format lib packages
-
-[group('gen')]
-fix: format
-    dart fix --apply lib
-
-[group('gen')]
-doc:
-    dart doc
-
-[group('gen')]
-gen-watch:
-    dart run build_runner watch --delete-conflicting-outputs
-
-[group('gen')]
-gen-clean:
-    dart run build_runner clean
-
-[group('gen')]
-[script]
-pigeon:
-    [ -d pigeons ] || { echo "no pigeons/ in this app"; exit 0; }
-    for input in pigeons/*.dart; do
-        case "$input" in *copyright_header*) continue ;; esac
-        dart run pigeon --input "$input"
-    done
-    dart format lib packages
-
-[group('gen')]
-icon:
-    dart run flutter_launcher_icons -f flutter_launcher_icons.yaml
-
-[group('gen')]
-splash:
-    dart run flutter_native_splash:create --path=flutter_native_splash.yaml
-
-# Brand tokens from the design workspace (DESIGN in .env).
-[group('gen')]
-tokens design=DESIGN:
-    test -n "{{ design }}" || { echo "set DESIGN in .env (the design tokens directory)"; exit 2; }
-    dart run aurora_glass:gen_brand --design-root "{{ design }}" --app-json tool/newapp/app.json --out lib/_core/theme/brand.g.dart
-
-[group('gen')]
-tokens-check design=DESIGN:
-    test -n "{{ design }}" || { echo "set DESIGN in .env (the design tokens directory)"; exit 2; }
-    dart run aurora_glass:gen_brand --check --design-root "{{ design }}" --app-json tool/newapp/app.json --out lib/_core/theme/brand.g.dart
-
-[group('l10n')]
-[working-directory('packages/localization')]
-l10n:
-    dart run l10n_tool:generate
-
-[group('l10n')]
-[working-directory('packages/localization')]
-l10n-translate model=L10N_MODEL:
-    dart run l10n_tool:generate --translate --model={{ model }}
-
-[group('l10n')]
-[working-directory('packages/localization')]
-l10n-verify:
-    dart run l10n_tool:verify
-
-[group('l10n')]
-[working-directory('packages/localization')]
-l10n-baseline:
-    dart run l10n_tool:pull_baseline
-
-[group('l10n')]
-[working-directory('packages/localization')]
-l10n-show:
-    dart run tool/read_sheet.dart
-
-[group('l10n')]
-[working-directory('packages/localization')]
-l10n-seed-dry:
-    dart run tool/dry_seed.dart
-
-# Writes the sheet.
-[confirm("Seed the localization sheet from the ARBs?")]
-[group('l10n')]
-[working-directory('packages/localization')]
-l10n-seed:
-    dart run l10n_tool:seed_sheet
-
-# config/keys.env is compiled into the app; only the keys app.json allows.
+# config/keys.env is compiled into the app: only the keys dev_tool.keys allows.
 [group('build')]
 check-keys:
     dart run dev_tool:check_keys
@@ -193,36 +90,27 @@ apk-debug *flags:
     flutter build apk --debug {{ DEBUG_DEFINES }} {{ flags }}
 
 [group('build')]
-install-debug *flags: (apk-debug flags)
-    adb install -r build/app/outputs/flutter-apk/app-debug.apk
-
-# The build number is the release clock in tool/newapp/app.json, as CI computes it.
-[group('build')]
 build-android: check-keys
-    flutter build apk --release {{ DEFINES }} --build-number=$(dart run dev_tool:build_number android) {{ SYMBOLS }}
+    flutter build apk --release {{ DEFINES }} {{ SYMBOLS }} {{ ANDROID_VERSION }}
 
-[group('build')]
-install-release: build-android
-    adb install -r build/app/outputs/flutter-apk/app-release.apk
-
+# The Android release build.
 [group('build')]
 build-appbundle: check-keys
-    flutter build appbundle --release {{ DEFINES }} --build-number=$(dart run dev_tool:build_number android) {{ SYMBOLS }}
+    flutter build appbundle --release {{ DEFINES }} {{ SYMBOLS }} {{ ANDROID_VERSION }}
 
 [group('build')]
 build-ios: check-keys
-    flutter build ipa --release {{ DEFINES }} --build-number=$(dart run dev_tool:build_number ios) {{ SYMBOLS }}
+    flutter build ipa --release {{ DEFINES }} {{ SYMBOLS }} {{ IOS_VERSION }}
 
-# The arm64 split APK: what a phone downloads.
+# The iOS release configures the project; xcodebuild archives, signs and uploads it.
 [group('build')]
-size: check-keys
-    flutter build apk --release --split-per-abi {{ DEFINES }}
-    ls -lh build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+build-ios-config: check-keys
+    flutter build ios --release --config-only {{ DEFINES }} {{ SYMBOLS }} {{ IOS_VERSION }}
 
-# Against `sizeBudgetMb` in tool/newapp/app.json.
+# Against dev_tool.release.size_budget_mb.
 [group('build')]
 size-aab: build-appbundle
-    dart run dev_tool:size_gate --aab build/app/outputs/bundle/release/app-release.aab --label "local build"
+    dart run dev_tool:size_gate --file build/app/outputs/bundle/release/app-release.aab --label "local build"
 
 # The Play card and the GitHub notes from CHANGELOG.md, into build/.
 [group('build')]
@@ -230,51 +118,17 @@ release-notes version='':
     dart run dev_tool:release_notes {{ version }}
 
 [group('device')]
-integration target='integration_test/m0_acceptance_test.dart' device=DEVICE:
-    flutter drive --no-dds {{ if device != "" { "-d " + device } else { "" } }} --driver=test_driver/integration_test.dart --target={{ target }} --screenshot=build/screenshots/failures
+run device=DEVICE:
+    flutter run {{ if device != "" { "-d " + device } else { "" } }} {{ DEBUG_DEFINES }}
 
 [group('device')]
-perf target='integration_test/m0_acceptance_test.dart' device=DEVICE:
-    flutter drive --profile --no-dds {{ if device != "" { "-d " + device } else { "" } }} --driver=test_driver/integration_test.dart --target={{ target }}
-
-[group('device')]
-screenshots dir=SHOTS_DIR device=DEVICE:
-    SHOTS_DIR="{{ dir }}" flutter drive --no-dds --driver=test_driver/integration_test.dart --target=integration_test/m0_acceptance_test.dart {{ if device != "" { "-d " + device } else { "" } }} {{ DEBUG_DEFINES }} --dart-define=SHOTS_DIR="{{ dir }}"
-
-[group('device')]
-screenshots-pack dir=SHOTS_DIR:
-    python3 tool/screenshots/pack.py --src "{{ dir }}"
-
-[group('device')]
-screenshots-upload dir=SHOTS_DIR:
-    python3 tool/screenshots/pack.py --src "{{ dir }}" --upload
-
-[group('store')]
-store: store-screens store-iphone
-    python3 tool/store/build_store_assets.py
-
-[group('store')]
-store-shots: store-screens store-iphone
-    python3 tool/store/build_store_assets.py shots
-
-[group('store')]
-store-screens:
-    flutter test --update-goldens tool/store/capture_screens_test.dart
-    python3 tool/store/build_store_assets.py dither
-
-[group('store')]
-store-iphone:
-    STORE_TARGET=iphone flutter test --update-goldens tool/store/capture_screens_test.dart
-    python3 tool/store/build_store_assets.py apple dither
-
-[group('store')]
-store-ipad:
-    STORE_TARGET=ipad flutter test --update-goldens tool/store/capture_screens_test.dart
-    python3 tool/store/build_store_assets.py ipad dither
+integration device=DEVICE:
+    flutter test integration_test {{ if device != "" { "-d " + device } else { "" } }} {{ DEBUG_DEFINES }}
 
 # Kit packages from local checkouts (KIT in .env: a directory or a PATH-style list).
 [group('deps')]
 kit-link kit=KIT:
+    test -n "{{ kit }}" || { echo "set KIT in .env (the kit checkouts directory)"; exit 2; }
     dart run dev_tool:kit link --kit "{{ kit }}"
     flutter pub get
 
@@ -293,32 +147,6 @@ upgrade:
     flutter pub upgrade
 
 [group('deps')]
-upgrade-major:
-    flutter pub upgrade --major-versions
-
-[group('deps')]
-flutter-doctor:
-    flutter doctor
-
-[group('deps')]
-version:
-    flutter --version
-
-[group('deps')]
 clean:
     flutter clean
     rm -rf coverage reports
-
-# Operator only: `just new-app tool/newapp/apps/<slug>.json <existing checkout>`.
-[group('operator')]
-new-app spec out:
-    [ -t 0 ] || { echo "new-app is an operator command: run it from a terminal"; exit 2; }
-    dart tool/newapp/create.dart --from . --spec {{ spec }} --out {{ out }}
-
-[group('operator')]
-new-app-dry spec out:
-    dart tool/newapp/create.dart --from . --spec {{ spec }} --out {{ out }} --dry-run
-
-[group('operator')]
-app-selftest:
-    dart tool/newapp/selftest.dart --from .

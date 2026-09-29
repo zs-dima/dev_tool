@@ -1,8 +1,9 @@
 name: "Publish check"
-description: "pub publish --dry-run; the published set holds no secret or build output; CHANGELOG.md names the version."
+description: "pub publish --dry-run; the published set holds no secret and no build output; CHANGELOG.md names the version."
 
 # `.pubignore` replaces `.gitignore` for pub, so a rule forgotten there uploads a key or build output
-# to pub.dev; the dry run alone does not refuse that.
+# to pub.dev; the dry run alone does not refuse that. Build output counts at the package's top level
+# only (a `lib/src/build/` is source); secrets count anywhere, an `.env.example` is not one.
 inputs:
   tool:
     description: "`dart` or `flutter`."
@@ -21,10 +22,14 @@ runs:
       env:
         TOOL: ${{ inputs.tool }}
       run: |
-        "$TOOL" pub publish --dry-run 2>&1 | tee "$RUNNER_TEMP/publish-set.txt"
-        sed -E 's/.*[├└]── //; s/ \([^)]*\)$//' "$RUNNER_TEMP/publish-set.txt" \
-          | grep -iE '^([^ ]+\.(key|pem|p8|p12|jks|keystore)|credentials\.json|service-account[^ ]*\.json|\.env[^ ]*|(build|coverage|reports|node_modules)/?)$' \
-          > "$RUNNER_TEMP/leaked.txt" || true
+        SET="$RUNNER_TEMP/publish-set.txt"
+        "$TOOL" pub publish --dry-run 2>&1 | tee "$SET"
+        {
+          grep -E '^(├|└)── (build|coverage|reports|node_modules|\.dart_tool)( |$)' "$SET" || true
+          sed -nE 's/.*(├|└)── ([^ ]+).*/\2/p' "$SET" \
+            | grep -iE '^([^/]+\.(key|pem|p8|p12|jks|keystore)|credentials\.json|service-account[^/]*\.json|\.env(\.[^/]+)?)$' \
+            | grep -viE '^\.env\.(example|sample|template)$' || true
+        } > "$RUNNER_TEMP/leaked.txt"
         if [ -s "$RUNNER_TEMP/leaked.txt" ]; then
           echo "::error::the published set holds files that must not reach pub.dev (add them to .pubignore):"
           cat "$RUNNER_TEMP/leaked.txt"
@@ -35,5 +40,5 @@ runs:
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       run: |
-        VERSION=$(sed -n 's/^version: *//p' pubspec.yaml | head -1)
+        VERSION=$(sed -n 's/^version: *//p' pubspec.yaml | head -1 | tr -d "\"' ")
         grep -q "^## \[$VERSION\]" CHANGELOG.md || { echo "::error file=CHANGELOG.md::no section for $VERSION"; exit 1; }

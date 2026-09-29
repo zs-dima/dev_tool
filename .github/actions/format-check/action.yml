@@ -1,0 +1,32 @@
+name: "Format check"
+description: "dart format over the tracked hand-written Dart files; generated `*.*.dart` is left as its generator emits it."
+
+# CI passes no width: the package's analysis_options.yaml sets it, as it does in the editor. The
+# templates' `just format-check` runs the same command.
+inputs:
+  working-directory:
+    required: false
+    default: "."
+  exclude:
+    description: "An extended regex of tracked Dart paths to skip as well."
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Formatting
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        EXCLUDE: ${{ inputs.exclude }}
+      run: |
+        LIST="$RUNNER_TEMP/format-files"
+        git ls-files -z -- '*.dart' ':(exclude,glob)**/*.*.dart' > "$LIST"
+        if [ -n "$EXCLUDE" ]; then
+          { grep -zvE -- "$EXCLUDE" "$LIST" || true; } > "$LIST.kept"
+          mv "$LIST.kept" "$LIST"
+        fi
+        if [ -s "$LIST" ]; then
+          xargs -0 dart format --output=none --set-exit-if-changed < "$LIST"
+        fi

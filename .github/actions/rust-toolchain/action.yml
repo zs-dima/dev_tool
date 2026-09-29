@@ -1,0 +1,78 @@
+name: "Rust toolchain"
+description: "Install the toolchain a job builds with, the system packages the build needs, and the build cache."
+
+# One bootstrap for every job of rust-ci.yml. The toolchain becomes rustup's directory override for
+# the checkout, which outranks a repository's rust-toolchain.toml: "CI builds on stable" holds
+# whatever the repository pins for its developers. `msrv` resolves to the workspace's one
+# `rust-version`.
+inputs:
+  toolchain:
+    description: "`stable`, a version, or `msrv`: the workspace's rust-version."
+    required: false
+    default: stable
+  components:
+    description: "Extra components, comma-separated (`rustfmt`, `clippy`)."
+    required: false
+    default: ""
+  apt-packages:
+    description: "System packages the build needs (e.g. `protobuf-compiler`), space-separated."
+    required: false
+    default: ""
+  cache:
+    description: "Restore and save the build cache."
+    required: false
+    default: "true"
+  working-directory:
+    description: "The workspace root, when it is not the repository root."
+    required: false
+    default: "."
+
+outputs:
+  toolchain:
+    description: "The installed toolchain."
+    value: ${{ steps.resolve.outputs.toolchain }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the toolchain
+      id: resolve
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        TOOLCHAIN: ${{ inputs.toolchain }}
+        RUSTUP_TOOLCHAIN: stable
+      run: |
+        if [ "$TOOLCHAIN" = msrv ]; then
+          rustup toolchain install stable --profile minimal
+          TOOLCHAIN=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '[.packages[].rust_version // empty] | unique | if length == 1 then .[0] else "" end')
+          [ -n "$TOOLCHAIN" ] || { echo "::error file=Cargo.toml::the workspace needs one rust-version (workspace.package)"; exit 1; }
+        fi
+        echo "toolchain=$TOOLCHAIN" >> "$GITHUB_OUTPUT"
+
+    - name: Install and select
+      shell: bash
+      env:
+        TOOLCHAIN: ${{ steps.resolve.outputs.toolchain }}
+        COMPONENTS: ${{ inputs.components }}
+      run: |
+        rustup toolchain install "$TOOLCHAIN" --profile minimal ${COMPONENTS:+--component "$COMPONENTS"}
+        rustup override set "$TOOLCHAIN"
+        rustc --version
+
+    - name: System packages
+      if: inputs.apt-packages != ''
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.apt-packages }}
+      run: |
+        sudo apt-get update -q
+        # shellcheck disable=SC2086 # one word per package; split, never evaluated
+        sudo apt-get install -y --no-install-recommends $PACKAGES
+
+    - name: Cache
+      if: inputs.cache == 'true'
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      with:
+        workspaces: ${{ inputs.working-directory }}

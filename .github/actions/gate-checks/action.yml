@@ -1,18 +1,36 @@
 name: "Gate checks"
-description: "The checks that decide whether a Flutter app's tree may be released."
+description: "The checks that decide whether a Flutter package's tree may merge or be released."
 
-# The checks both the push gate and the release's cold path run. Per-app differences are inputs, not
-# copies. Expects `setup-flutter` with codegen and format on (the diff below compares regenerated
-# bytes); leaves `reports/<pkg>.json` and per-package `coverage/lcov.info`.
+# One definition for the push gate and the releases' cold path, run after format-check. Expects
+# setup-flutter (and, when a recipe runs, setup-just) before it. Leaves `reports/<package>.json` and
+# per-package `coverage/lcov.info` behind for the reporter and the summary. No step `uses:` another
+# action of this repository: what `$/` means inside a composite action another repository's run loaded
+# is not documented (2026-09-28), so every `$/` stays in the workflows.
 inputs:
   working-directory:
-    description: "The app's root, when it is not the repository root."
+    description: "The package root, when it is not the repository root."
     required: false
     default: "."
+  codegen:
+    description: "`committed`: the codegen recipe's output must equal the committed files. `ignored` or `none`: no comparison."
+    required: false
+    default: "none"
+  codegen-recipe:
+    description: "The recipe named in the drift message."
+    required: false
+    default: "gen"
+  extra-checks:
+    description: "A just recipe with the repository's own checks, run after analyze and before the tests."
+    required: false
+    default: ""
   dcm:
     description: "Run DCM with the licence pair (dcm-key, dcm-email)."
     required: false
     default: "false"
+  dcm-args:
+    description: "Arguments of `dcm analyze .`."
+    required: false
+    default: "--no-fatal-warnings --no-fatal-style"
   dcm-key:
     description: "secrets.DCM_CI_KEY."
     required: false
@@ -21,48 +39,33 @@ inputs:
     description: "secrets.DCM_EMAIL, the other half of the CI licence pair."
     required: false
     default: ""
-  github-token:
-    description: "github.token, for setup-dcm's release download."
-    required: false
-    default: ""
-  app-audit:
-    description: "Run the app's own `dart tool/newapp/audit.dart --ci` (the line's copy audit)."
-    required: false
-    default: "false"
-  l10n-verify:
-    description: "Run `l10n_tool:verify` in packages/localization (ARBs against the committed baselines, offline)."
-    required: false
-    default: "false"
-  unused-keys:
-    description: "Run packages/localization/tool/unused_keys.dart (every authored row has a reader)."
-    required: false
-    default: "false"
-  setup-node:
-    description: "Install Node before the tests, for an npm project named in `dev_tool.test.extra`."
-    required: false
-    default: "false"
-  node-version:
-    description: "Node version for setup-node."
-    required: false
-    default: "24"
 
 runs:
   using: composite
   steps:
-    # No filter: the one-liner gives the old filtered pipeline's verdict in all 16 repositories
-    # (2026-09-27).
-    - name: Formatting
+    # A misspelt policy would skip the comparison and pass.
+    - name: Inputs
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      run: dart format --output=none --set-exit-if-changed .
-
-    - name: Generated code is committed
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
+      env:
+        CODEGEN: ${{ inputs.codegen }}
       run: |
-        if ! git diff --exit-code --stat -- lib packages ':!**/*.lock'; then
-          git diff --name-only -- lib packages ':!**/*.lock' | sed 's/.*/::error file=&::regenerated, differs from the committed file/'
-          echo "::error::Run \`just gen-ci\` (build_runner + format) and commit the result."
+        case "$CODEGEN" in none|committed|ignored) ;; *)
+          echo "::error::codegen must be none, committed or ignored, got '$CODEGEN'"; exit 1 ;;
+        esac
+
+    # Everything `flutter pub get` and the recipe wrote must already be committed: generated Dart,
+    # and the platform registrants pub get regenerates for an app's plugins.
+    - name: Generated code is committed
+      if: inputs.codegen == 'committed'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        RECIPE: ${{ inputs.codegen-recipe }}
+      run: |
+        DRIFT=$(git status --porcelain --untracked-files=all -- . ':(exclude,glob)**/*.lock')
+        if [ -n "$DRIFT" ]; then
+          printf '%s\n' "$DRIFT" | cut -c4- | sed 's/.*/::error file=&::differs from the tree after `flutter pub get` and `just '"$RECIPE"'`/'
+          echo "::error::Run \`flutter pub get\` and \`just $RECIPE\`, then commit the result."
           exit 1
         fi
 
@@ -71,23 +74,13 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       run: flutter analyze
 
-    - name: App audit
-      if: inputs.app-audit == 'true'
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      run: dart tool/newapp/audit.dart --ci
-
-    # Only where the runner has it; the callers are short and a parse error surfaces on its own.
-    - name: Lint the workflows
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      run: if command -v actionlint >/dev/null 2>&1; then actionlint; fi
-
-    # A missing secret must not turn DCM into a silent no-op.
+    # A missing licence must not turn DCM into a silent no-op; a pull request from a fork or from
+    # Dependabot cannot see the repository's secrets, so it is the one place DCM does not run.
     - name: DCM key expected
-      if: inputs.dcm == 'true' && inputs.dcm-key == '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+      if: >-
+        inputs.dcm == 'true' && inputs.dcm-key == '' && github.actor != 'dependabot[bot]' &&
+        (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
       shell: bash
-      working-directory: ${{ inputs.working-directory }}
       run: |
         echo "::error::DCM_CI_KEY is empty: pass it in the caller's \`secrets:\` or set \`dcm: false\`."
         exit 1
@@ -96,9 +89,8 @@ runs:
       if: inputs.dcm == 'true' && inputs.dcm-key != ''
       uses: CQLabs/setup-dcm@87040f30822ed86d362425d3dfadc9866baaa03f # v2.0.2
       with:
-        github-token: ${{ inputs.github-token }}
+        github-token: ${{ github.token }}
 
-    # An error-severity issue fails; the warning/style backlog reports.
     - name: DCM analyze
       if: inputs.dcm == 'true' && inputs.dcm-key != ''
       shell: bash
@@ -106,49 +98,49 @@ runs:
       env:
         DCM_CI_KEY: ${{ inputs.dcm-key }}
         DCM_EMAIL: ${{ inputs.dcm-email }}
-      run: dcm analyze . --no-fatal-warnings --no-fatal-style
+        DCM_ARGS: ${{ inputs.dcm-args }}
+      run: |
+        # shellcheck disable=SC2086 # the arguments are words; they are split, never evaluated
+        dcm analyze . $DCM_ARGS
 
-    # Retried: DCM checks its licence against dcm.dev on every call, and one failed lookup failed a
-    # release (2026-09-14).
-    - name: DCM unused code, files and l10n
-      if: inputs.dcm == 'true' && inputs.dcm-key != ''
+    - name: Repository checks
+      if: inputs.extra-checks != ''
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
-        DCM_CI_KEY: ${{ inputs.dcm-key }}
-        DCM_EMAIL: ${{ inputs.dcm-email }}
+        RECIPE: ${{ inputs.extra-checks }}
       run: |
-        unused() {
-          dcm check-unused-code . --exclude-public-api --no-fatal-unused &&
-          dcm check-unused-files . --exclude-public-api --no-fatal-unused &&
-          dcm check-unused-l10n . --class-pattern "Localization$" --no-fatal-unused
-        }
-        for attempt in 1 2 3; do
-          unused && exit 0
-          echo "::warning::DCM attempt $attempt failed; retrying in 10 s"
-          sleep 10
-        done
-        exit 1
+        just --show "$RECIPE" >/dev/null 2>&1 \
+          || { echo "::error::extra-checks runs \`just $RECIPE\`, and the justfile has no such recipe"; exit 1; }
+        just "$RECIPE"
 
-    - name: L10n verify
-      if: inputs.l10n-verify == 'true'
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}/packages/localization
-      run: dart run l10n_tool:verify
-
-    - name: L10n unused keys
-      if: inputs.unused-keys == 'true'
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}/packages/localization
-      run: dart run tool/unused_keys.dart
-
-    - name: Setup Node
-      if: inputs.setup-node == 'true'
-      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-      with:
-        node-version: ${{ inputs.node-version }}
-
+    # The workspace runner where the package depends on dev_tool, as `my-stack check` decides; plain
+    # `flutter test` with the same flags otherwise. Either way the verdict is the JSON report's too:
+    # `flutter test` exits 0 on a run its own reporter marked failed (2026-09-14).
     - name: Tests
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      run: dart run dev_tool:test_workspace
+      run: |
+        if grep -q '"name": *"dev_tool"' .dart_tool/package_config.json 2>/dev/null; then
+          dart run dev_tool:test_workspace
+        elif [ -d test ]; then
+          mkdir -p reports
+          flutter test --coverage --test-randomize-ordering-seed=random --file-reporter json:reports/tests.json
+          jq -e 'select(.type == "done") | .success == true' reports/tests.json > /dev/null \
+            || { echo "::error::reports/tests.json does not record a finished, successful run"; exit 1; }
+        else
+          echo "::notice::no test/ directory: no tests ran"
+        fi
+
+    # An app's native half runs no Dart: where a repository writes JVM tests they are part of the gate,
+    # as they are of `my-stack check`. The Gradle wrapper is gitignored in Flutter's template;
+    # `flutter build apk --config-only` restores it.
+    - name: Android unit tests
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        if [ -d android/app/src/test ]; then
+          [ -f android/gradlew ] || flutter build apk --config-only
+          chmod +x android/gradlew
+          ./android/gradlew -p android --console=plain --quiet :app:testDebugUnitTest
+        fi

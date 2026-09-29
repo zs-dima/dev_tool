@@ -1,4 +1,4 @@
-# dev_tool templates/flutter-app/.github/workflows/code-analysis.yml @1.0.0
+# dev_tool templates/flutter-app/.github/workflows/code-analysis.yml @2.0.0
 # The release probe asks for push runs of `code-analysis.yml`; the test report triggers on the name.
 name: "Code Analysis"
 
@@ -18,12 +18,11 @@ permissions:
 
 jobs:
   gate:
-    uses: zs-dima/dev_tool/.github/workflows/flutter-app-gate.yml@v1
+    uses: zs-dima/dev_tool/.github/workflows/flutter-gate.yml@v2
     with:
-      # This app's checks; the workflow also takes unused-keys and setup-node.
-      dcm: true
-      app-audit: true
-      l10n-verify: true
-    secrets:
-      DCM_CI_KEY: ${{ secrets.DCM_CI_KEY }}
-      DCM_EMAIL: ${{ secrets.DCM_EMAIL }}
+      codegen: committed
+      extra-checks: gate-extra
+      # A self-hosted runner: runs-on: '["self-hosted","Linux"]'. DCM: dcm: true and the secrets below.
+    # secrets:
+    #   DCM_CI_KEY: ${{ secrets.DCM_CI_KEY }}
+    #   DCM_EMAIL: ${{ secrets.DCM_EMAIL }}

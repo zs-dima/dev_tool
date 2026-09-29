@@ -1,4 +1,4 @@
-# dev_tool templates/flutter-app/.gitattributes @1.0.0
+# dev_tool templates/flutter-app/.gitattributes @2.0.0
 # LF everywhere: Windows' default `core.autocrlf=true` would check text out as CRLF.
 * text=auto eol=lf
 gradlew text eol=lf
@@ -25,4 +25,3 @@ gradlew text eol=lf
 *.g.dart       linguist-generated=true
 *.freezed.dart linguist-generated=true
 *.gen.dart     linguist-generated=true
-packages/localization/lib/src/generated/** linguist-generated=true

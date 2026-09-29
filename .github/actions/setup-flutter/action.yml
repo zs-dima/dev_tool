@@ -1,8 +1,9 @@
 name: "Setup Flutter"
-description: "Install the Flutter SDK the app is built against, resolve dependencies, regenerate code."
+description: "Install the Flutter SDK the package is built against, resolve its dependencies, and regenerate code with the repository's recipe when asked."
 
-# One bootstrap for every job that needs Flutter. The version is the pubspec's `flutter: ">=X"`
-# lower bound unless the caller pins one; three hand-kept copies of it drifted before (2026-09-14).
+# One bootstrap for every job that needs Flutter. The version is the pubspec's `flutter: ">=X"` lower
+# bound unless the caller pins one; three hand-kept copies of it drifted before (2026-09-14). Codegen
+# is the repository's own recipe, so the bytes CI compares are the bytes the recipe produces locally.
 inputs:
   flutter-version:
     description: "Exact version. Empty derives it from the pubspec's `flutter:` lower bound."
@@ -16,10 +17,10 @@ inputs:
     description: "Directory whose pubspec gives the Flutter version; defaults to working-directory. An example app names its package's."
     required: false
     default: ""
-  codegen:
-    description: "Run build_runner. The release path turns it off when the gate already proved the committed code current."
+  codegen-recipe:
+    description: "The just recipe that regenerates code (setup-just must have run); empty skips codegen."
     required: false
-    default: "true"
+    default: ""
 
 runs:
   using: composite
@@ -31,9 +32,9 @@ runs:
       env:
         PINNED: ${{ inputs.flutter-version }}
       run: |
-        VERSION="${PINNED:-$(sed -n 's/^  flutter: ">=\(.*\)"$/\1/p' pubspec.yaml)}"
+        VERSION="${PINNED:-$(sed -En 's/^  flutter: *["'\''](>=)?([0-9][^"'\'' ]*)[^"'\'']*["'\''] *$/\2/p' pubspec.yaml | head -1)}"
         if [ -z "$VERSION" ]; then
-          echo "::error file=pubspec.yaml::no \`flutter: \">=X\"\` SDK lower bound to derive the version from"
+          echo "::error file=pubspec.yaml::no \`flutter: \">=X\"\` SDK constraint to derive the version from; pass flutter-version"
           exit 1
         fi
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -87,28 +88,13 @@ runs:
         flutter config --disable-analytics --no-cli-animations
         flutter pub get
 
-    # The same lines as `just gen-ci`. pubspec_generator is a global tool at its latest version, never
-    # a dependency (it breaks the app's resolution); it runs where its output file exists.
     - name: Generate code
-      if: inputs.codegen == 'true'
+      if: inputs.codegen-recipe != ''
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      env:
+        RECIPE: ${{ inputs.codegen-recipe }}
       run: |
-        if grep -q '^  build_runner:' pubspec.yaml; then
-          dart run build_runner build --delete-conflicting-outputs
-        else
-          echo "no build_runner dependency, nothing to generate"
-        fi
-        CONSTANTS=lib/_core/generated/constant/pubspec.yaml.g.dart
-        if [ -f "$CONSTANTS" ]; then
-          dart pub global activate pubspec_generator
-          dart pub global run pubspec_generator:generate --input pubspec.yaml --output "$CONSTANTS" --no-timestamp
-        fi
-
-    # drift and json_serializable emit 80 columns; the committed files are at 120, so the diff check
-    # needs this.
-    - name: Format generated code
-      if: inputs.codegen == 'true'
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      run: dart format lib $( [ -d packages ] && echo packages )
+        just --show "$RECIPE" >/dev/null 2>&1 \
+          || { echo "::error::codegen runs \`just $RECIPE\`, and the justfile has no such recipe"; exit 1; }
+        just "$RECIPE"

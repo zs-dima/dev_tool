@@ -1,0 +1,55 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "The estate's Renovate settings, extended as github>zs-dima/dev_tool: third-party actions pinned by digest, weekly grouped updates a week after release, lock-file maintenance, nothing merged automatically.",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests", ":semanticCommits"],
+  "schedule": ["before 6am on monday"],
+  "minimumReleaseAge": "7 days",
+  "prConcurrentLimit": 5,
+  "automerge": false,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"]
+  },
+  "packageRules": [
+    {
+      "description": "Callers float on dev_tool's major tag; a new major is its own pull request, one caller at a time.",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["zs-dima/dev_tool"],
+      "pinDigests": false
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["!zs-dima/dev_tool"],
+      "groupName": "actions"
+    },
+    {
+      "matchManagers": ["mise"],
+      "groupName": "tools"
+    },
+    {
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "rust dependencies"
+    },
+    {
+      "matchManagers": ["pub"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "pub dependencies"
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "npm dependencies"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "A version pinned outside a manifest (a just recipe, a workflow env, an action input), annotated on the line above: `# renovate: datasource=<datasource> depName=<name>`.",
+      "managerFilePatterns": ["/(^|/)justfile$/", "/\\.ya?ml$/", "/\\.toml$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(\\s+extractVersion=(?<extractVersion>\\S+))?\\s*\\n[^\\n]*?(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ]
+    }
+  ]
+}

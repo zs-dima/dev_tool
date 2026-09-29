@@ -4,59 +4,44 @@ import 'package:dev_tool/dev_tool.dart';
 import 'package:dev_tool/src/check_keys.dart' show runCheckKeys;
 import 'package:test/test.dart';
 
-/// Everything in `config/keys.env` is compiled into the app: the check is the only thing between an
-/// API key on a developer's disk and every bundle built from that disk.
+/// Everything in the keys file is compiled into the app: the check is the only thing between an API
+/// key on a developer's disk and every bundle built from that disk.
 void main() {
-  test('only the allowlisted keys pass; comments, blanks and `export` prefixes are understood', () {
-    const env = '''
-# the app's keys
-SENTRY_DSN=https://example.invalid/1
-
-export AI_KEY=sk-live
-OPENAI=x
-''';
-    expect(disallowedKeys(env, kDefaultKeys), equals(<String>['AI_KEY', 'OPENAI']));
-    expect(disallowedKeys('SENTRY_DSN=x\n', kDefaultKeys), isEmpty);
-  });
-
-  test('the allowlist comes from app.json `keys`, SENTRY_DSN when absent', () {
-    expect(allowedKeys(const <String, Object?>{}), equals(<String>['SENTRY_DSN']));
-    expect(
-      allowedKeys(<String, Object?>{
-        'keys': <Object?>['SENTRY_DSN', 'MAPS_KEY'],
-      }),
-      equals(<String>['SENTRY_DSN', 'MAPS_KEY']),
-    );
-    expect(
-      () => allowedKeys(<String, Object?>{
-        'keys': <Object?>[1],
-      }),
-      throwsA(isA<UsageException>()),
-    );
+  test('only the allowlisted keys pass; comments, blanks, CRLF and `export` prefixes are understood', () {
+    const env = '# the app keys\r\nSENTRY_DSN=https://example.invalid/1\r\n\r\nexport AI_KEY=sk-live\r\nOPENAI=x\r\n';
+    expect(disallowedKeys(env, const <String>['SENTRY_DSN']), equals(<String>['AI_KEY', 'OPENAI']));
+    expect(disallowedKeys('SENTRY_DSN=x\n', const <String>['SENTRY_DSN']), isEmpty);
   });
 
   group('the executable', () {
     late Directory root;
 
-    setUp(() {
-      root = Directory.systemTemp.createTempSync('dev_tool_keys');
-      File('${root.path}/tool/newapp/app.json')
-        ..createSync(recursive: true)
-        ..writeAsStringSync('{"slug": "demo"}');
-    });
+    void write(String path, String text) => File('${root.path}/$path')
+      ..createSync(recursive: true)
+      ..writeAsStringSync(text);
+
+    setUp(() => root = Directory.systemTemp.createTempSync('dev_tool_keys'));
     tearDown(() => root.deleteSync(recursive: true));
 
-    test('a missing keys.env fails with the fix, not with flutter\'s file-not-found', () {
+    test('with no allowlist nothing passes: the guard fails closed', () {
+      write('pubspec.yaml', 'name: app\n');
+      write('config/keys.env', 'SENTRY_DSN=x\n');
       expect(runCheckKeys(<String>['--root', root.path]), equals(1));
     });
 
-    test('an allowed file passes and a foreign key fails', () {
-      final env = File('${root.path}/config/keys.env')
-        ..createSync(recursive: true)
-        ..writeAsStringSync('SENTRY_DSN=x\n');
+    test('the allowlist is dev_tool.keys; a foreign key fails', () {
+      write('pubspec.yaml', 'name: app\ndev_tool:\n  keys: [SENTRY_DSN]\n');
+      write('config/keys.env', 'SENTRY_DSN=x\n');
       expect(runCheckKeys(<String>['--root', root.path]), isZero);
-      env.writeAsStringSync('SENTRY_DSN=x\nAI_KEY=y\n');
+      write('config/keys.env', 'SENTRY_DSN=x\nAI_KEY=y\n');
       expect(runCheckKeys(<String>['--root', root.path]), equals(1));
+    });
+
+    test('--file names another keys file; a missing one fails with the fix', () {
+      write('pubspec.yaml', 'name: app\ndev_tool:\n  keys: [MAPS_KEY]\n');
+      write('secrets/web.env', 'MAPS_KEY=x\n');
+      expect(runCheckKeys(<String>['--root', root.path, '--file', 'secrets/web.env']), isZero);
+      expect(runCheckKeys(<String>['--root', root.path]), equals(1), reason: 'config/keys.env is missing');
     });
   });
 }

@@ -1,0 +1,77 @@
+name: Actions lint
+
+# actionlint (with shellcheck for the run: blocks) and zizmor over a repository's workflows and
+# actions, at the versions its mise.toml pins, else at the versions below: the repository's local
+# `just lint-workflows` and CI then run the same tools. `.github/actionlint.yaml` and `zizmor.yml`
+# are read where the repository has them.
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        type: string
+        default: '["ubuntu-latest"]'
+      workflows:
+        description: "Workflow files or globs for actionlint; empty lints .github/workflows."
+        type: string
+        default: ""
+      zizmor-paths:
+        description: "Directories zizmor audits, space-separated."
+        type: string
+        default: ".github"
+      persona:
+        description: "zizmor's persona: `regular`, or `pedantic` for every finding including undocumented permissions."
+        type: string
+        default: regular
+
+permissions:
+  contents: read
+
+env:
+  # renovate: datasource=github-releases depName=rhysd/actionlint extractVersion=^v(?<version>.+)$
+  ACTIONLINT_VERSION: 1.7.12
+  # renovate: datasource=github-releases depName=zizmorcore/zizmor extractVersion=^v(?<version>.+)$
+  ZIZMOR_VERSION: 1.30.1
+  # renovate: datasource=github-releases depName=koalaman/shellcheck extractVersion=^v(?<version>.+)$
+  SHELLCHECK_VERSION: 0.11.0
+
+jobs:
+  lint:
+    name: actionlint · zizmor
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The repository's mise.toml pins win; a tool it does not pin comes at the version above.
+      - name: mise and the repository's tools
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+
+      - name: The tools the repository does not pin
+        run: |
+          for SPEC in "actionlint@$ACTIONLINT_VERSION" "zizmor@$ZIZMOR_VERSION" "shellcheck@$SHELLCHECK_VERSION"; do
+            command -v "${SPEC%@*}" >/dev/null 2>&1 || mise use --global "$SPEC"
+          done
+          actionlint --version | head -1
+          zizmor --version
+
+      - name: actionlint
+        env:
+          WORKFLOWS: ${{ inputs.workflows }}
+        run: |
+          # shellcheck disable=SC2086 # files and globs, expanded here
+          actionlint $WORKFLOWS
+
+      - name: zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PERSONA: ${{ inputs.persona }}
+          PATHS: ${{ inputs.zizmor-paths }}
+        run: |
+          # shellcheck disable=SC2086 # directories, one word each
+          zizmor --persona="$PERSONA" $PATHS

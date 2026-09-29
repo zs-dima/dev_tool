@@ -1,0 +1,125 @@
+name: Dart gate
+
+# The gate of a pure-Dart package: format, analyze, the repository's own checks, tests with the JSON
+# report's verdict, the publish check. One job per entry of `os`, for code that differs by platform.
+# No DCM: its licence is a secret a fork's pull request cannot see; `just dcm` runs it locally.
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "The package root inside the repository."
+        type: string
+        default: "."
+      sdk:
+        description: "Dart SDK, as dart-lang/setup-dart takes it."
+        type: string
+        default: stable
+      os:
+        description: "A JSON array of runners, one job each: '[\"ubuntu-latest\",\"macos-latest\",\"windows-latest\"]'."
+        type: string
+        default: '["ubuntu-latest"]'
+      timeout-minutes:
+        type: number
+        default: 15
+      format-exclude:
+        description: "An extended regex of tracked Dart paths the format check skips, on top of generated `*.*.dart`."
+        type: string
+        default: ""
+      extra-checks:
+        description: "A just recipe with the repository's own checks, run after analyze and before the tests."
+        type: string
+        default: ""
+      publish-check:
+        description: "Run the pub.dev publish check (dry run, no secret or build output in the published set, CHANGELOG names the version)."
+        type: boolean
+        default: false
+      artifact-name:
+        description: "Name of the uploaded reports artifact (suffixed with the job index when `os` has several runners)."
+        type: string
+        default: test-results
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Gate (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.os) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+        with:
+          sdk: ${{ inputs.sdk }}
+
+      - name: Resolve dependencies
+        run: dart pub get
+
+      - name: Formatting
+        uses: $/.github/actions/format-check
+        with:
+          working-directory: ${{ inputs.working-directory }}
+          exclude: ${{ inputs.format-exclude }}
+
+      - name: Analyze
+        run: dart analyze --fatal-infos --fatal-warnings
+
+      - name: Setup just
+        if: ${{ inputs.extra-checks != '' }}
+        uses: $/.github/actions/setup-just
+        with:
+          working-directory: ${{ inputs.working-directory }}
+
+      - name: Repository checks
+        if: ${{ inputs.extra-checks != '' }}
+        env:
+          RECIPE: ${{ inputs.extra-checks }}
+        run: |
+          just --show "$RECIPE" >/dev/null 2>&1 \
+            || { echo "::error::extra-checks runs \`just $RECIPE\`, and the justfile has no such recipe"; exit 1; }
+          just "$RECIPE"
+
+      # `dart test` exits 0 on a run its own reporter marked failed (2026-09-14), so the verdict is the
+      # JSON report's too; the workspace runner where the package depends on dev_tool.
+      - name: Tests
+        run: |
+          if grep -q '"name": *"dev_tool"' .dart_tool/package_config.json 2>/dev/null; then
+            dart run dev_tool:test_workspace
+          elif [ -d test ]; then
+            mkdir -p reports
+            dart test --test-randomize-ordering-seed=random --file-reporter json:reports/tests.json
+            jq -e 'select(.type == "done") | .success == true' reports/tests.json > /dev/null \
+              || { echo "::error::reports/tests.json does not record a finished, successful run"; exit 1; }
+          else
+            echo "::notice::no test/ directory: no tests ran"
+          fi
+
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact-name }}${{ strategy.job-total > 1 && format('-{0}', strategy.job-index) || '' }}
+          path: ${{ inputs.working-directory }}/reports/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Publish check
+        if: ${{ inputs.publish-check && strategy.job-index == 0 }}
+        uses: $/.github/actions/publish-check
+        with:
+          tool: dart
+          working-directory: ${{ inputs.working-directory }}

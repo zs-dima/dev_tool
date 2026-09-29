@@ -1,11 +1,11 @@
 name: dev_tool
-description: Shared developer tooling for standalone Dart and Flutter repositories (workspace test runner, kit linking, build numbers, release notes, size gate).
+description: Shared developer tooling for Dart and Flutter repositories (workspace test runner, coverage summary, kit linking, build numbers, release notes, size and key gates).
 
 # Consumed by git tag (`tag_pattern: v{{version}}`): pub.dev refuses the name as too similar to
 # `devtools` (2026-09-27), and the name stays.
 publish_to: none
 
-version: 1.0.1
+version: 2.0.0
 
 homepage: https://github.com/zs-dima/dev_tool
 repository: https://github.com/zs-dima/dev_tool
@@ -16,13 +16,16 @@ environment:
 
 executables:
   test_workspace: test_workspace
+  coverage_summary: coverage_summary
   kit: kit
-  size_gate: size_gate
-  release_notes: release_notes
   build_number: build_number
   check_keys: check_keys
+  size_gate: size_gate
+  release_notes: release_notes
 
 dependencies:
+  args: ^2.7.0
+  glob: ^2.2.0
   yaml: ^3.1.3
 
 dev_dependencies:

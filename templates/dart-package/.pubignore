@@ -1,4 +1,4 @@
-# dev_tool templates/dart-package/.pubignore @1.0.0
+# dev_tool templates/dart-package/.pubignore @2.0.0
 .github/
 .vscode/
 .idea/
@@ -13,6 +13,7 @@ AGENTS.md
 CLAUDE.md
 justfile
 mise.toml
+renovate.json
 dart_test.yaml
 .env
 .metadata

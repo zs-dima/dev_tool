@@ -6,7 +6,8 @@
 fixtures/
 templates/
 zizmor.yml
-dart_test.yaml
+default.json
+renovate.json
 SECURITY.md
 build/
 coverage/

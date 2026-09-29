@@ -1,0 +1,68 @@
+name: "Publish to crates.io"
+description: "Publish every publishable crate of the workspace at the pushed version tag, with a crates.io trusted-publishing token."
+
+# A composite action, not a reusable workflow: it runs inside the caller's `publish.yml`, the file
+# crates.io's trusted publisher is configured with. The caller's job runs on a `v*` tag in the
+# `crates-io` environment and grants `id-token: write`. No token is stored anywhere.
+inputs:
+  working-directory:
+    description: "The workspace root, when it is not the repository root."
+    required: false
+    default: "."
+  apt-packages:
+    description: "System packages the build needs (e.g. `protobuf-compiler`), space-separated."
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Toolchain
+      shell: bash
+      run: rustup toolchain install stable --profile minimal
+
+    - name: System packages
+      if: inputs.apt-packages != ''
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.apt-packages }}
+      run: |
+        sudo apt-get update -q
+        # shellcheck disable=SC2086 # one word per package; split, never evaluated
+        sudo apt-get install -y --no-install-recommends $PACKAGES
+
+    # One version for the workspace: a crate left behind would publish under the wrong number.
+    - name: The tag is every publishable crate's version
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        RUSTUP_TOOLCHAIN: stable
+      run: |
+        TAG="${GITHUB_REF_NAME#v}"
+        cargo metadata --no-deps --format-version 1 \
+          | jq -r '.packages[] | select(.publish == null or (.publish | length) > 0) | "\(.name) \(.version)"' \
+          > "$RUNNER_TEMP/crates.txt"
+        [ -s "$RUNNER_TEMP/crates.txt" ] || { echo "::error::no publishable crate in this workspace"; exit 1; }
+        while read -r NAME VERSION; do
+          [ "$VERSION" = "$TAG" ] || { echo "::error::$NAME is $VERSION, the tag $GITHUB_REF_NAME says $TAG"; exit 1; }
+        done < "$RUNNER_TEMP/crates.txt"
+
+    - name: Dry run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        RUSTUP_TOOLCHAIN: stable
+      run: cargo publish --workspace --dry-run
+
+    - name: crates.io token
+      id: auth
+      uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+    # cargo orders the workspace's crates by their dependencies (cargo >= 1.90).
+    - name: Publish
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        RUSTUP_TOOLCHAIN: stable
+        CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+      run: cargo publish --workspace

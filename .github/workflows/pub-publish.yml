@@ -1,0 +1,83 @@
+name: pub.dev publish
+
+# A version tag's release to pub.dev: dev_tool's publish check (dry run; no secret or build output in
+# the published set; CHANGELOG names the version; the tag names the pubspec's version), then
+# dart-lang's publish workflow, which authenticates with the OIDC token pub.dev's automated
+# publishing accepts. The caller runs on the tag pattern configured on pub.dev and grants
+# `id-token: write`; no pub credential lives in a secret.
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "The package root inside the repository."
+        type: string
+        default: "."
+      environment:
+        description: "The GitHub environment pub.dev requires, if its automated publishing names one."
+        type: string
+        default: ""
+      flutter-version:
+        description: "For a Flutter package without a `flutter:` constraint to derive the version from."
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Publish check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: The tag is the pubspec's version
+        id: package
+        run: |
+          VERSION=$(sed -n 's/^version: *//p' pubspec.yaml | head -1 | tr -d "\"' ")
+          [ "${GITHUB_REF_NAME#v}" = "$VERSION" ] \
+            || { echo "::error file=pubspec.yaml::the tag is $GITHUB_REF_NAME, pubspec.yaml says $VERSION"; exit 1; }
+          if grep -Eq '^[[:space:]]+sdk:[[:space:]]*flutter[[:space:]]*$' pubspec.yaml; then
+            echo "tool=flutter" >> "$GITHUB_OUTPUT"
+          else
+            echo "tool=dart" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Dart
+        if: steps.package.outputs.tool == 'dart'
+        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+      - name: Resolve dependencies
+        if: steps.package.outputs.tool == 'dart'
+        run: dart pub get
+
+      - name: Setup Flutter
+        if: steps.package.outputs.tool == 'flutter'
+        uses: $/.github/actions/setup-flutter
+        with:
+          flutter-version: ${{ inputs.flutter-version }}
+          working-directory: ${{ inputs.working-directory }}
+
+      - name: Publish check
+        uses: $/.github/actions/publish-check
+        with:
+          tool: ${{ steps.package.outputs.tool }}
+          working-directory: ${{ inputs.working-directory }}
+
+  publish:
+    name: Publish
+    needs: check
+    permissions:
+      contents: read
+      id-token: write # pub.dev's automated publishing authenticates with this OIDC token
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
+    with:
+      environment: ${{ inputs.environment }}
+      working-directory: ${{ inputs.working-directory }}
