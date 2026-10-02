@@ -1,4 +1,4 @@
-# The gate's flags, defined once for `just`, CI and `my-stack check`. `-D warnings` stays in the
+# The gate's flags, defined once for `just`, CI and `takt check`. `-D warnings` stays in the
 # alias: a target-specific `rustflags` silently replaces `[build] rustflags`.
 [alias]
 lint = "clippy --workspace --all-targets --all-features -- -D warnings"

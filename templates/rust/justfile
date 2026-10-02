@@ -1,7 +1,7 @@
 # dev_tool templates/rust/justfile @2.0.0
 # Copied once, then this repository's own. Needs `sh` on PATH (Windows: Git for Windows' `Git\bin`);
 # tools: `mise install`. The gate's flags are the cargo aliases in .cargo/config.toml, which CI's
-# rust-ci.yml and `my-stack check` run too.
+# rust-ci.yml and `takt check` run too.
 
 default:
     @just --list

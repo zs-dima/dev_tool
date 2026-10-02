@@ -59,7 +59,7 @@ out of the archive.
 ## rust
 
 A Cargo workspace. The gate's flags are cargo aliases in `.cargo/config.toml` (`cargo lint`,
-`cargo test-all`, `cargo doc-check`, and `cargo ui` for trybuild), so `just`, CI and `my-stack check`
+`cargo test-all`, `cargo doc-check`, and `cargo ui` for trybuild), so `just`, CI and `takt check`
 run one definition. MSRV is `rust-version` in `Cargo.toml`, read by CI. `release.toml` makes
 cargo-release bump, commit and push; `just release` tags once CI passed, and `publish.yml` (a library
 only) publishes the tag through crates.io's trusted publishing. Lints belong in the workspace manifest:

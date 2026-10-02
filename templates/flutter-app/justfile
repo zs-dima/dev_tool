@@ -46,7 +46,7 @@ gate-extra:
 test *args:
     dart run dev_tool:test_workspace {{ args }}
 
-# The Android unit tests, where the app has any: part of the gate, as in CI and `my-stack check`.
+# The Android unit tests, where the app has any: part of the gate, as in CI and `takt check`.
 [group('gate')]
 [script]
 test-android:

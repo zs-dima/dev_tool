@@ -114,7 +114,7 @@ runs:
           || { echo "::error::extra-checks runs \`just $RECIPE\`, and the justfile has no such recipe"; exit 1; }
         just "$RECIPE"
 
-    # The workspace runner where the package depends on dev_tool, as `my-stack check` decides; plain
+    # The workspace runner where the package depends on dev_tool, as `takt check` decides; plain
     # `flutter test` with the same flags otherwise. Either way the verdict is the JSON report's too:
     # `flutter test` exits 0 on a run its own reporter marked failed (2026-09-14).
     - name: Tests
@@ -133,7 +133,7 @@ runs:
         fi
 
     # An app's native half runs no Dart: where a repository writes JVM tests they are part of the gate,
-    # as they are of `my-stack check`. The Gradle wrapper is gitignored in Flutter's template;
+    # as they are of `takt check`. The Gradle wrapper is gitignored in Flutter's template;
     # `flutter build apk --config-only` restores it.
     - name: Android unit tests
       shell: bash

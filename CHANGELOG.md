@@ -48,7 +48,7 @@ callers move to `@v2` one at a time.
   `actions-lint.yml`; actions `format-check`, `gate-probe`, `setup-just`, `rust-toolchain`, `rust-publish`.
 - `coverage_summary`: the step summary's coverage table, generated files left out.
 - Android JVM unit tests in the Flutter gate where `android/app/src/test` exists, as in
-  `my-stack check`.
+  `takt check`.
 - The Renovate preset `default.json` (`github>zs-dima/dev_tool`) with an annotation manager for
   versions pinned outside a manifest.
 - Fixtures: a Flutter pub workspace (a member with committed generated code, a standalone extra, a

@@ -1,5 +1,5 @@
 # dev_tool templates/rust/.cargo/config.toml @2.0.0
-# The gate's flags, defined once for `just`, CI (rust-ci.yml) and `my-stack check`. `-D warnings`
+# The gate's flags, defined once for `just`, CI (rust-ci.yml) and `takt check`. `-D warnings`
 # stays in the alias: a target-specific `rustflags` silently replaces `[build] rustflags`, and CI sets
 # no RUSTFLAGS.
 [alias]

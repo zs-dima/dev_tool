@@ -2,7 +2,7 @@ name: Rust CI
 
 # The standard gate of a Cargo workspace. The flags are the repository's cargo aliases in
 # `.cargo/config.toml` (`lint`, `test-all`, `doc-check`, optionally `ui`), which its justfile and the
-# my-stack gate run too. This workflow never sets RUSTFLAGS: a global value replaces the
+# takt gate run too. This workflow never sets RUSTFLAGS: a global value replaces the
 # repository's `rustflags` and changes trybuild's expected output. Every job selects its toolchain
 # with a rustup override, which outranks a repository's rust-toolchain.toml, so "CI builds on
 # stable" holds. Jobs that need a service, another toolchain matrix or a regenerate-and-diff stay in
