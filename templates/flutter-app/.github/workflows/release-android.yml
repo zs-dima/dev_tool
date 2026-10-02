@@ -1,4 +1,4 @@
-# dev_tool templates/flutter-app/.github/workflows/release-android.yml @2.0.0
+# dev_tool templates/flutter-app/.github/workflows/release-android.yml @3.0.0
 name: "Release · Android"
 
 # A dispatch with `publish` off is the build-only rehearsal; the first upload of an app is made by
@@ -30,7 +30,7 @@ jobs:
     permissions:
       contents: write # the GitHub Release with the bundle and the symbols
       actions: read # the gate probe reads this repository's workflow runs
-    uses: zs-dima/dev_tool/.github/workflows/flutter-release-android.yml@v2
+    uses: zs-dima/dev_tool/.github/workflows/flutter-release-android.yml@v3
     with:
       track: ${{ inputs.track || 'alpha' }}
       publish: ${{ inputs.publish == true }}

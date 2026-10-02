@@ -1,4 +1,4 @@
-# dev_tool templates/flutter-app/.github/workflows/code-analysis.yml @2.0.0
+# dev_tool templates/flutter-app/.github/workflows/code-analysis.yml @3.0.0
 # The release probe asks for push runs of `code-analysis.yml`; the test report triggers on the name.
 name: "Code Analysis"
 
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   gate:
-    uses: zs-dima/dev_tool/.github/workflows/flutter-gate.yml@v2
+    uses: zs-dima/dev_tool/.github/workflows/flutter-gate.yml@v3
     with:
       codegen: committed
       extra-checks: gate-extra

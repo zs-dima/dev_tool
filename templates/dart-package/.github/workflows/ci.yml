@@ -1,4 +1,4 @@
-# dev_tool templates/dart-package/.github/workflows/ci.yml @2.0.0
+# dev_tool templates/dart-package/.github/workflows/ci.yml @3.0.0
 name: CI
 
 on:
@@ -19,6 +19,6 @@ permissions:
 jobs:
   gate:
     # A package that needs Flutter calls flutter-gate.yml (with example-directory for its example app).
-    uses: zs-dima/dev_tool/.github/workflows/dart-gate.yml@v2
+    uses: zs-dima/dev_tool/.github/workflows/dart-gate.yml@v3
     with:
       publish-check: true # false for a package that is not published

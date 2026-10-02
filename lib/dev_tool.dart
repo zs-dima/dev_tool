@@ -7,9 +7,11 @@ library;
 export 'src/build_number.dart' show buildNumber, kPlayCeiling;
 export 'src/check_keys.dart' show disallowedKeys;
 export 'src/cli.dart' show HelpRequested, UsageException;
-export 'src/config.dart' show DevToolConfig, ReleaseClock, kDefaultClock, loadConfig, parseConfig;
+export 'src/config.dart'
+    show DevToolConfig, LayoutCheck, ReleaseClock, kDefaultClock, kLayoutRules, loadConfig, parseConfig;
 export 'src/coverage_summary.dart' show CoverageRow, coverageTable, lineCoverage;
 export 'src/kit.dart' show KitDependency, kitDependencies, localCheckout, overridesYaml;
+export 'src/layout_check.dart' show Finding, scanProject;
 export 'src/release_notes.dart' show storeEntries;
 export 'src/release_notes_format.dart' show fit, forStore, kStoreLimit, section;
 export 'src/test_report.dart' show ReportVerdict, reportVerdict;

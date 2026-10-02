@@ -1,4 +1,4 @@
-# dev_tool templates/flutter-app/.github/workflows/release-ios.yml @2.0.0
+# dev_tool templates/flutter-app/.github/workflows/release-ios.yml @3.0.0
 name: "Release · iOS"
 
 on:
@@ -23,7 +23,7 @@ jobs:
     permissions:
       contents: read
       actions: read # the gate probe reads this repository's workflow runs
-    uses: zs-dima/dev_tool/.github/workflows/flutter-release-ios.yml@v2
+    uses: zs-dima/dev_tool/.github/workflows/flutter-release-ios.yml@v3
     with:
       publish: ${{ inputs.publish == true }}
       appstore-auto-publish: ${{ vars.APPSTORE_AUTO_PUBLISH == 'true' }}

@@ -1,4 +1,4 @@
-# dev_tool templates/rust/.github/workflows/publish.yml @2.0.0
+# dev_tool templates/rust/.github/workflows/publish.yml @3.0.0
 # crates.io through trusted publishing, no token stored: publish the first version by hand, then add
 # this repository, the workflow file `publish.yml` and the environment `crates-io` as each crate's
 # trusted publisher on crates.io. A library only; a service deletes this file.
@@ -29,6 +29,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Publish
-        uses: zs-dima/dev_tool/.github/actions/rust-publish@v2
+        uses: zs-dima/dev_tool/.github/actions/rust-publish@v3
         # with:
         #   apt-packages: protobuf-compiler

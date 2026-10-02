@@ -30,6 +30,11 @@ dev_tool:
       build_number_base: 1788816828
       build_number_t0: 1788869018
   keys: [SENTRY_DSN]           # what config/keys.env may hold; absent: nothing
+  layout_check:                # the structural layout check
+    paths: [lib, packages]     # where it scans; these two by default
+    box_wrappers: [GlassCard]  # the repository's own box widgets, beside Flutter's
+    disable: [shrink-wrap]     # rules switched off
+    exclude: [/generated/]     # path fragments it skips, beside .dart_tool/ and build/
 ```
 
 ## Executables
@@ -43,8 +48,29 @@ dev_tool:
 | `check_keys` | Refuses a keys file that holds a key `dev_tool.keys` does not allow |
 | `size_gate --file <bundle>` | The bundle's size as a table, gated by `dev_tool.release.size_budget_mb` when it is set |
 | `release_notes [version]` | The CHANGELOG section as GitHub notes and Play "What's new" cards |
+| `layout_check [--json]` | The structural layout check over a Flutter repository's sources; exit 1 on a finding |
 
 Each takes `--root` and `--help`; a usage error exits 2.
+
+### The layout check
+
+Two laws a widget test cannot see, because tests run with no system padding and never resize a
+window: a scrollable is never wrapped in a box (its insets go inside it), and a subtree never
+changes shape on a runtime condition. Beside them, what no lint expresses: a transformed stream
+built where it is read, a `Paint` in a `TextStyle`, the clock read in a build, `MediaQuery.of`,
+`shrinkWrap`, intrinsics, a `UniqueKey` in a build. It is a regex scan with no package resolution,
+so a repository runs it in-process from its own suite, where CI sees it:
+
+```dart
+import 'package:dev_tool/dev_tool.dart' show scanProject;
+import 'package:test/test.dart';
+
+void main() {
+  test('the layout laws hold', () => expect(scanProject(), isEmpty));
+}
+```
+
+A false positive is silenced on the line or the line above: `// layout-check: ignore <rule>`.
 
 ## Workflows and actions
 
@@ -70,14 +96,14 @@ dev_dependencies:
     git:
       url: https://github.com/zs-dima/dev_tool.git
       tag_pattern: v{{version}}
-    version: ^2.0.0
+    version: ^3.0.0
 ```
 
 ```yaml
 # .github/workflows/code-analysis.yml
 jobs:
   gate:
-    uses: zs-dima/dev_tool/.github/workflows/flutter-gate.yml@v2
+    uses: zs-dima/dev_tool/.github/workflows/flutter-gate.yml@v3
     with:
       codegen: committed
       extra-checks: gate-extra
@@ -85,14 +111,14 @@ jobs:
 
 Not on pub.dev: it refuses the name as too similar to `devtools`. A repository's `renovate.json`
 extends `github>zs-dima/dev_tool`; Renovate's lock-file maintenance moves the git dependency within
-`^2`, and a new major tag of the workflows arrives as its own pull request.
+`^3`, and a new major tag of the workflows arrives as its own pull request.
 
 ## Versions
 
 A release is a tag `vX.Y.Z`, and the major tag moves to it once CI passed on that commit
-(`just release X.Y.Z`, operator only). A `v2` workflow uses only the command-line surface of
-dev_tool 2.0.0, and its inputs and secrets are add-only with defaults; anything else is `v3`, and
-callers move one at a time. `v1` stays at 1.0.1. Third-party actions are pinned by commit SHA and
+(`just release X.Y.Z`, operator only). A `v3` workflow uses only the command-line surface of
+dev_tool 3.0.0, and its inputs and secrets are add-only with defaults; anything else is `v4`, and
+callers move one at a time. `v2` stays at 2.0.0 and `v1` at 1.0.1. Third-party actions are pinned by commit SHA and
 bumped here, once, for every caller.
 
 ## Working on it

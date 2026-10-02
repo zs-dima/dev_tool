@@ -1,4 +1,4 @@
-# dev_tool templates/dart-package/.github/workflows/deploy.yml @2.0.0
+# dev_tool templates/dart-package/.github/workflows/deploy.yml @3.0.0
 # pub.dev through OIDC. Publish the first version by hand, then enable automated publishing on the
 # package's Admin tab with this repository and the tag pattern `v{{version}}`.
 name: Deploy
@@ -15,4 +15,4 @@ jobs:
     permissions:
       contents: read
       id-token: write # pub.dev's automated publishing authenticates with this OIDC token
-    uses: zs-dima/dev_tool/.github/workflows/pub-publish.yml@v2
+    uses: zs-dima/dev_tool/.github/workflows/pub-publish.yml@v3

@@ -1,4 +1,4 @@
-# dev_tool templates/rust/.github/workflows/ci.yml @2.0.0
+# dev_tool templates/rust/.github/workflows/ci.yml @3.0.0
 # The standard gate is dev_tool's rust-ci.yml over this repository's cargo aliases. A job that needs
 # a service, another toolchain or a regenerate-and-diff goes below it as this repository's own.
 name: CI
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   gate:
-    uses: zs-dima/dev_tool/.github/workflows/rust-ci.yml@v2
+    uses: zs-dima/dev_tool/.github/workflows/rust-ci.yml@v3
     # with:
     #   apt-packages: protobuf-compiler   # a build script that runs protoc
     #   semver-packages: my-crate         # a published library, against its latest release

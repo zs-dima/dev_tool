@@ -16,6 +16,9 @@ void main() {
     expect(config.clock('android'), equals(kDefaultClock));
     expect(config.sizeBudgetMb, isNull);
     expect(config.keys, isEmpty);
+    expect(config.layoutCheck.paths, <String>['lib', 'packages']);
+    expect(config.layoutCheck.boxWrappers, isEmpty);
+    expect(config.layoutCheck.disable, isEmpty);
   });
 
   test('every setting is read', () {

@@ -4,6 +4,28 @@ All notable changes to this project are documented in this file. The format is b
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0]
+
+The structural layout check lives here, for every Flutter repository: it was a library of a private
+UI kit's test package, so a repository without that kit had no guard for the two layout laws.
+
+### Added
+
+- `layout_check` and `scanProject()` (`package:dev_tool/dev_tool.dart`): the regex scan of a
+  repository's Dart sources, run in-process from its suite or from the command line (`--json`).
+  Eleven rules; `kLayoutRules` names them.
+- `dev_tool.layout_check` in `pubspec.yaml`: `paths`, `box_wrappers`, `disable`, `exclude`. A rule
+  or a widget name it does not know is an error naming the setting.
+
+### Changed
+
+- The check's settings are the `dev_tool:` block, not `.claude/flutter-layout-check.json`
+  (`boxWrappers` is `box_wrappers`).
+- Its built-in box widgets are Flutter's and the two of a UI package's shared vocabulary
+  (`ContentPane`, `MessageBody`); a kit's other wrappers go into `box_wrappers` of the repository
+  that uses them.
+- The templates call the workflows at `@v3`. The workflows are those of `v2`, which stays at 2.0.0.
+
 ## [2.0.0]
 
 One repository for the estate's Flutter, Dart and Rust repositories, tied to no family of apps: the

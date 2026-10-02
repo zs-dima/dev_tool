@@ -12,6 +12,11 @@
 ///       build_number_base: 1788816828
 ///       build_number_t0: 1788869018
 ///   keys: [SENTRY_DSN]           # what the keys file may hold; absent: nothing
+///   layout_check:                # the structural layout check (`layout_check.dart`)
+///     paths: [lib, packages]     # where it scans; these two by default
+///     box_wrappers: [GlassCard]  # the repository's own box widgets, beside Flutter's
+///     disable: [shrink-wrap]     # rules switched off
+///     exclude: [/generated/]     # path fragments it skips, beside .dart_tool/ and build/
 /// ```
 library;
 
@@ -24,6 +29,44 @@ typedef ReleaseClock = ({int base, int t0});
 /// 2020-01-01T00:00:00Z, seven digits until 2039.
 const ReleaseClock kDefaultClock = (base: 0, t0: 1577836800);
 
+/// Every rule of the layout check, for `dev_tool.layout_check.disable`.
+const List<String> kLayoutRules = <String>[
+  'wrapped-scrollable',
+  'reshape',
+  'stream-transform',
+  'paint-in-style',
+  'clock-in-build',
+  'media-query-of',
+  'shrink-wrap',
+  'intrinsic',
+  'unique-key-in-build',
+  'pane-under-pinned-header',
+  'bare-header-in-scroll',
+];
+
+/// `dev_tool.layout_check`: what the structural layout check scans and what it leaves alone.
+final class LayoutCheck {
+  /// Creates the settings; the defaults scan `lib` and `packages` with every rule on.
+  const LayoutCheck({
+    this.paths = const <String>['lib', 'packages'],
+    this.boxWrappers = const <String>[],
+    this.disable = const <String>[],
+    this.exclude = const <String>['.dart_tool/', 'build/', '/generated/'],
+  });
+
+  /// `paths`: the directories scanned, relative to the root.
+  final List<String> paths;
+
+  /// `box_wrappers`: the repository's own widgets that shrink their child, beside Flutter's.
+  final List<String> boxWrappers;
+
+  /// `disable`: rules of [kLayoutRules] switched off.
+  final List<String> disable;
+
+  /// `exclude`: fragments of a relative path that take a file out of the scan.
+  final List<String> exclude;
+}
+
 /// One repository's settings.
 final class DevToolConfig {
   /// Creates the settings; every field defaults to "not configured".
@@ -32,6 +75,7 @@ final class DevToolConfig {
     this.clocks = const <String, ReleaseClock>{},
     this.sizeBudgetMb,
     this.keys = const <String>[],
+    this.layoutCheck = const LayoutCheck(),
   });
 
   /// `test.extra`: directories outside the workspace the test runner also tests.
@@ -45,6 +89,9 @@ final class DevToolConfig {
 
   /// `keys`: the variables the keys file may hold.
   final List<String> keys;
+
+  /// `layout_check`: the structural layout check's settings.
+  final LayoutCheck layoutCheck;
 
   /// The clock of [platform]; [kDefaultClock] when none is configured.
   ReleaseClock clock(String platform) => clocks[platform] ?? kDefaultClock;
@@ -61,7 +108,7 @@ DevToolConfig loadConfig(String root) {
 DevToolConfig parseConfig(Object? block) {
   if (block == null) return const DevToolConfig();
   final config = _map(block, 'dev_tool');
-  _onlyKeys(config, 'dev_tool', const <String>{'test', 'release', 'keys'});
+  _onlyKeys(config, 'dev_tool', const <String>{'test', 'release', 'keys', 'layout_check'});
 
   var extras = const <String>[];
   if (config['test'] case final Object test) {
@@ -101,7 +148,39 @@ DevToolConfig parseConfig(Object? block) {
       ? const <String>[]
       : _strings(config['keys'], 'dev_tool.keys', 'a list of variable names');
 
-  return DevToolConfig(extras: extras, clocks: clocks, sizeBudgetMb: sizeBudgetMb, keys: keys);
+  var layoutCheck = const LayoutCheck();
+  if (config['layout_check'] case final Object block) {
+    const path = 'dev_tool.layout_check';
+    final map = _map(block, path);
+    _onlyKeys(map, path, const <String>{'paths', 'box_wrappers', 'disable', 'exclude'});
+    List<String>? list(String key, String expected) =>
+        map[key] == null ? null : _strings(map[key], '$path.$key', expected);
+    final disable = list('disable', 'a list of rule names') ?? const <String>[];
+    for (final rule in disable) {
+      if (!kLayoutRules.contains(rule)) _bad('$path.disable', 'rules of ${kLayoutRules.join(', ')}', rule);
+    }
+    final wrappers = list('box_wrappers', 'a list of widget names') ?? const <String>[];
+    for (final name in wrappers) {
+      if (!RegExp(r'^[A-Z]\w*$').hasMatch(name)) _bad('$path.box_wrappers', 'widget class names', name);
+    }
+    layoutCheck = LayoutCheck(
+      paths: <String>[
+        for (final dir in list('paths', 'a list of directories') ?? const <String>['lib', 'packages'])
+          _relativeDir(dir, '$path.paths'),
+      ],
+      boxWrappers: wrappers,
+      disable: disable,
+      exclude: <String>[...const LayoutCheck().exclude, ...?list('exclude', 'a list of path fragments')],
+    );
+  }
+
+  return DevToolConfig(
+    extras: extras,
+    clocks: clocks,
+    sizeBudgetMb: sizeBudgetMb,
+    keys: keys,
+    layoutCheck: layoutCheck,
+  );
 }
 
 Map<Object?, Object?> _map(Object? value, String path) =>
@@ -122,10 +201,10 @@ void _onlyKeys(Map<Object?, Object?> map, String path, Set<String> known) {
   }
 }
 
-String _relativeDir(String dir) {
+String _relativeDir(String dir, [String setting = 'dev_tool.test.extra']) {
   final path = dir.trim().replaceAll(r'\', '/').replaceFirst(RegExp(r'/+$'), '');
   if (path.startsWith('/') || RegExp('^[A-Za-z]:').hasMatch(path) || path.split('/').contains('..')) {
-    _bad('dev_tool.test.extra', 'directories inside the repository, relative to its root', dir);
+    _bad(setting, 'directories inside the repository, relative to its root', dir);
   }
   return path;
 }

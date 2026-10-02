@@ -1,4 +1,4 @@
-# dev_tool templates/flutter-app/.github/workflows/tests_reporter.yml @2.0.0
+# dev_tool templates/flutter-app/.github/workflows/tests_reporter.yml @3.0.0
 name: "Tests Report"
 
 # Nothing from the finished run is checked out or executed; the reporter parses its JSON.
@@ -16,7 +16,7 @@ jobs:
       contents: read
       actions: read # downloads the finished run's artifact
       checks: write # publishes the report as a check run
-    uses: zs-dima/dev_tool/.github/workflows/test-report.yml@v2
+    uses: zs-dima/dev_tool/.github/workflows/test-report.yml@v3
     with:
       reporter: flutter-json
       name: Flutter Tests
