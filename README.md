@@ -43,7 +43,7 @@ dev_tool:
 |---|---|
 | `test_workspace` | Runs the tests of the root, every pub workspace member and each `dev_tool.test.extra` (a Dart package or an npm project); fails unless both the exit code and each JSON report say it passed |
 | `coverage_summary` | Each tested package's line coverage as a Markdown table, generated files left out |
-| `kit link --kit <dirs>` / `kit unlink` | Points the dependencies that have a local checkout at it through `pubspec_overrides.yaml` |
+| `kit link --kit <dirs>` / `kit unlink` | Points the dependencies that have a local checkout at it through `pubspec_overrides.yaml`. `dart run` resolves the package first, so a git dependency with no tag yet cannot be linked this way: add its `path:` entry to `pubspec_overrides.yaml` by hand until its first tag |
 | `build_number <platform>` | The release build number: minutes on the platform's clock |
 | `check_keys` | Refuses a keys file that holds a key `dev_tool.keys` does not allow |
 | `size_gate --file <bundle>` | The bundle's size as a table, gated by `dev_tool.release.size_budget_mb` when it is set |
